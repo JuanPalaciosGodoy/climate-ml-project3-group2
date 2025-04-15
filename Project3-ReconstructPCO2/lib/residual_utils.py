@@ -10,6 +10,7 @@ import keras
 from keras import Sequential, regularizers
 from keras.layers import Dense, BatchNormalization, Dropout
 import gcsfs
+from lib.corr_figure3 import decompose_stl_fast_parallel_from_xarray
 fs = gcsfs.GCSFileSystem()
 
 #===============================================
@@ -371,6 +372,40 @@ def create_features(df, N_time, N_batch = 12):
     lat_rad = np.radians(df.index.get_level_values('ylat').to_numpy())
     df['T0'], df['T1'] = [np.cos(days_idx * 2 * np.pi / 365), np.sin(days_idx * 2 * np.pi / 365)]
     df['A'], df['B'], df['C'] = [np.sin(lat_rad), np.sin(lon_rad)*np.cos(lat_rad), -np.cos(lon_rad)*np.cos(lat_rad)]
+    return df
+
+def decompose_variable(df:pd.DataFrame, var_name:str, prefix:str='spco2') -> pd.DataFrame:
+    """
+    Decompose variable into seasonal, decadal, detrend, residual, and residual_low
+
+    Parameters
+    ----------
+
+        df (pd.DataFrame): pandas dataframe containing variable to be decomposed, where the dataframe index is assumed to contain time, lat, and lon
+
+        var_name (str): name of the variable to be decomposed. Must be a column in df
+
+    Returns
+    -------
+
+        (pd.DataFrame): pandas dataframe containing the original variables and the decomposed variables: {var_name_spco2}_detrend', {var_name_spco2}_dec', {var_name_spco2}_seasonal', {var_name_spco2}_residual', '{var_name_spco2}_residual_low'
+    """
+
+    # transform dataframe to xarray
+    data = df.to_xarray()
+
+    # decompose variable
+    decomposed_data = decompose_stl_fast_parallel_from_xarray(
+        data=data,
+        var_name=var_name,
+        prefix=prefix
+    )
+
+    # add decomposition to dataframe
+    if prefix in df.columns:
+        decomposed_df = decomposed_data.to_dataframe().drop(prefix, axis=1)
+    df = df.join(decomposed_df)
+
     return df
 
 def create_inputs(ensemble_dir_head, ens, member, dates, N_time,
