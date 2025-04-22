@@ -10,6 +10,13 @@ import keras
 from keras import Sequential, regularizers
 from keras.layers import Dense, BatchNormalization, Dropout
 import gcsfs
+import pickle
+from urllib.parse import urljoin
+import fsspec
+from ignite.metrics import MeanSquaredError, MeanAbsoluteError, RootMeanSquaredError
+from ignite.metrics.regression import R2Score, PearsonCorrelation, MedianAbsoluteError
+from ignite.engine import Engine
+import torch
 from lib.corr_figure3 import decompose_stl_fast_parallel_from_xarray
 fs = gcsfs.GCSFileSystem()
 
@@ -483,6 +490,61 @@ def centered_rmse(y,pred):
     pred_mean = np.mean(pred)
     return np.sqrt(np.square((pred - pred_mean) - (y - y_mean)).sum()/pred.size)
 
+def evaluate_test_torch(y, pred):
+
+    def eval_step(engine, batch):
+        return batch
+    
+    default_evaluator = Engine(eval_step)
+    
+    metric = MeanSquaredError()
+    metric.attach(default_evaluator, 'mse')
+    state = default_evaluator.run([[y, pred]])
+    mse = state.metrics['mse']
+
+    metric = MeanAbsoluteError()
+    metric.attach(default_evaluator, 'mae')
+    state = default_evaluator.run([[y, pred]])
+    mae = state.metrics['mae']
+
+    metric = MedianAbsoluteError()
+    metric.attach(default_evaluator, 'mae')
+    state = default_evaluator.run([[y, pred]])
+    mde = state.metrics['mae']
+
+    metric = R2Score()
+    metric.attach(default_evaluator, 'r2')
+    state = default_evaluator.run([[y, pred]])
+    r2 = state.metrics['r2']
+
+    metric = PearsonCorrelation()
+    metric.attach(default_evaluator, 'corr')
+    state = default_evaluator.run([[y, pred]])
+    corr = state.metrics['corr']
+
+    metric = RootMeanSquaredError()
+    metric.attach(default_evaluator, 'rmse')
+    state = default_evaluator.run([[y, pred]])
+    rmse = state.metrics['rmse']
+
+    scores = {
+        'mse':mse,
+        'mae':mae,
+        'medae':mde,
+        'max_error':torch.max(torch.abs(y - pred)).item(),
+        'bias':(torch.mean(pred) - torch.mean(y)).item(),
+        'r2':r2,
+        'corr':corr,
+        'cent_rmse':rmse,
+        'stdev' :torch.std(pred).item(),
+        'amp_ratio':((torch.max(pred)-torch.min(pred))/(torch.max(y)-torch.min(y))).item(), # added when doing temporal decomposition
+        'stdev_ref':torch.std(y).item(),
+        'range_ref':(torch.max(y)-torch.min(y)).item(),
+        'iqr_ref':(torch.quantile(y, 0.75) - torch.quantile(y, 0.25)).item()
+        }
+
+    return scores
+
 def evaluate_test(y, pred):
     """
     Calculates ML test metrics/scores.
@@ -643,7 +705,7 @@ def apply_splits(X, y, train_val_idx, train_idx, val_idx, test_idx):
 # Saving functions
 #===============================================
 
-def save_clean_data(df, data_output_dir, ens, member, dates):
+def save_clean_data(df, data_output_dir, ens, member, dates, save_format='parquet'):
     
     """
     Saves clean ML dataframe to be fed into ML algorithm
@@ -653,20 +715,30 @@ def save_clean_data(df, data_output_dir, ens, member, dates):
     df : pd.Dataframe
         Dataframe for ML algo
     
-    data_output_dir: str
-        Path to directory to save dataframe for ML
+    data_output_dir : str
+         GCS path (e.g., "gs://leap-persistent/Mukkke/...")
         
     """
     
     print("Starting data saving process")
 
-    init_date = str(dates[0].year) + format(dates[0].month,'02d')
-    fin_date = str(dates[-1].year) + format(dates[-1].month,'02d')
-    
-    output_dir = f"{data_output_dir}/{ens}/{member}"
-    fname = f"{output_dir}/MLinput_{ens}_{member.split('_')[-1]}_mon_1x1_{init_date}_{fin_date}.pkl"
-    df.to_pickle(fname)
-    print(f"{member} save complete")
+    init_date = f"{dates[0].year}{dates[0].month:02d}"
+    fin_date = f"{dates[-1].year}{dates[-1].month:02d}"
+ 
+    base_fname = f"MLinput_{ens}_{member.split('_')[-1]}_mon_1x1_{init_date}_{fin_date}"
+    fname = base_fname + (".parquet" if save_format == 'parquet' else ".pkl")
+    file_path = f"{data_output_dir}/{ens}/{member}/{fname}"
+ 
+    if save_format == 'parquet':
+        with fsspec.open(file_path, 'wb') as f:
+             df.to_parquet(f)
+    elif save_format == 'pickle':
+        with fsspec.open(file_path, 'wb') as f:
+            pickle.dump(df, f, protocol=pickle.HIGHEST_PROTOCOL)
+    else:
+        raise ValueError(f"Unsupported format: {save_format}")
+ 
+    print(f"{member} save complete ({save_format})")
 
 # def save_model(model, dates, model_output_dir, ens, member):
     
@@ -782,7 +854,7 @@ def save_model(model, dates, model_output_dir, ens, member):
 import os
 from pathlib import Path
 
-def save_model_locally(model, dates, local_output_dir, ens, member):
+def save_model_locally(model, dates, local_output_dir, ens, member, extension:str="json"):
     """
     Saves the trained XGBoost model to a local directory.
 
@@ -814,7 +886,7 @@ def save_model_locally(model, dates, local_output_dir, ens, member):
     fin_date = f"{dates[-1].year}{dates[-1].month:02d}"
 
     # Define the local filename
-    model_filename = f"model_pCO2_2D_{ens}_{member.split('_')[-1]}_mon_1x1_{init_date}_{fin_date}.json"
+    model_filename = f"model_pCO2_2D_{ens}_{member.split('_')[-1]}_mon_1x1_{init_date}_{fin_date}.{extension}"
     model_path = os.path.join(local_output_dir, model_filename)
 
     # Save the model
