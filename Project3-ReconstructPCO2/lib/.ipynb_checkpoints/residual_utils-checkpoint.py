@@ -10,6 +10,14 @@ import keras
 from keras import Sequential, regularizers
 from keras.layers import Dense, BatchNormalization, Dropout
 import gcsfs
+import pickle
+from urllib.parse import urljoin
+import fsspec
+from ignite.metrics import MeanSquaredError, MeanAbsoluteError, RootMeanSquaredError
+from ignite.metrics.regression import R2Score, PearsonCorrelation, MedianAbsoluteError
+from ignite.engine import Engine
+import torch
+from lib.corr_figure3 import decompose_stl_fast_parallel_from_xarray
 fs = gcsfs.GCSFileSystem()
 
 #===============================================
@@ -46,7 +54,6 @@ def network_mask(topo_path,lsmask_path):
     
     ### topography
     topo_file_ext = topo_path.split('.')[-1] # getting if zarr or nc
-    #ds_topo = xr.open_mfdataset(topo_path, engine=topo_file_ext)
     ds_topo = xr.open_zarr(topo_path)
     ds_topo = ds_topo.roll(lon=180, roll_coords='lon')
     ds_topo['lon'] = np.arange(0.5, 360, 1)
@@ -56,7 +63,6 @@ def network_mask(topo_path,lsmask_path):
     # land=0, sea=1
     
     lsmask_file_ext = topo_path.split('.')[-1] # getting if zarr or nc
-    #ds_lsmask = xr.open_mfdataset(lsmask_path, engine=lsmask_file_ext).sortby('lat').squeeze().drop('time')
     ds_lsmask = xr.open_zarr(lsmask_path).sortby('lat').squeeze().drop('time')
     data = ds_lsmask['mask'].where(ds_lsmask['mask']==1)
     
@@ -267,13 +273,14 @@ def import_member_data(ensemble_dir_head, ens, member,
 
     chl_clim_path = fs.glob(f"{ensemble_dir_head}/{ens}/{member}/chlclim*.{files_ext}")[0]
 
-    #member_data = xr.open_mfdataset('gs://'+member_path, engine=file_engine).sel(time=slice(str(dates[0]),str(dates[-1])))
+    # member_data = xr.open_mfdataset('gs://'+member_path, engine=file_engine).sel(time=slice(str(dates[0]),str(dates[-1])))
+    # socat_mask_data = xr.open_mfdataset(socat_path, engine=file_engine).sel(time=slice(str(dates[0]),str(dates[-1])))
+    # tmp = xr.open_mfdataset('gs://'+chl_clim_path, engine=file_engine).chl_clim
+    # xco2 = xr.open_mfdataset(xco2_path, engine=file_engine).sel(time=slice(str(dates[0]),str(dates[-1])))
+     
     member_data = xr.open_zarr('gs://'+member_path).sel(time=slice(str(dates[0]),str(dates[-1])))
-    #socat_mask_data = xr.open_mfdataset(socat_path, engine=file_engine).sel(time=slice(str(dates[0]),str(dates[-1])))
     socat_mask_data = xr.open_zarr(socat_path).sel(time=slice(str(dates[0]),str(dates[-1])))
-    #tmp = xr.open_mfdataset('gs://'+chl_clim_path, engine=file_engine).chl_clim
     tmp = xr.open_zarr('gs://'+chl_clim_path).chl_clim
-    #xco2 = xr.open_mfdataset(xco2_path, engine=file_engine).sel(time=slice(str(dates[0]),str(dates[-1])))
     xco2 = xr.open_zarr(xco2_path).sel(time=slice(str(dates[0]),str(dates[-1])))
      
     inputs = {}
@@ -374,6 +381,40 @@ def create_features(df, N_time, N_batch = 12):
     df['A'], df['B'], df['C'] = [np.sin(lat_rad), np.sin(lon_rad)*np.cos(lat_rad), -np.cos(lon_rad)*np.cos(lat_rad)]
     return df
 
+def decompose_variable(df:pd.DataFrame, var_name:str, prefix:str='spco2') -> pd.DataFrame:
+    """
+    Decompose variable into seasonal, decadal, detrend, residual, and residual_low
+
+    Parameters
+    ----------
+
+        df (pd.DataFrame): pandas dataframe containing variable to be decomposed, where the dataframe index is assumed to contain time, lat, and lon
+
+        var_name (str): name of the variable to be decomposed. Must be a column in df
+
+    Returns
+    -------
+
+        (pd.DataFrame): pandas dataframe containing the original variables and the decomposed variables: {var_name_spco2}_detrend', {var_name_spco2}_dec', {var_name_spco2}_seasonal', {var_name_spco2}_residual', '{var_name_spco2}_residual_low'
+    """
+
+    # transform dataframe to xarray
+    data = df.to_xarray()
+
+    # decompose variable
+    decomposed_data = decompose_stl_fast_parallel_from_xarray(
+        data=data,
+        var_name=var_name,
+        prefix=prefix
+    )
+
+    # add decomposition to dataframe
+    if prefix in df.columns:
+        decomposed_df = decomposed_data.to_dataframe().drop(prefix, axis=1)
+    df = df.join(decomposed_df)
+
+    return df
+
 def create_inputs(ensemble_dir_head, ens, member, dates, N_time,
                   xco2_path, socat_path, topo_path, lsmask_path,
                   N_batch = 12): #N_batch should be number of months
@@ -448,6 +489,61 @@ def centered_rmse(y,pred):
     y_mean = np.mean(y)
     pred_mean = np.mean(pred)
     return np.sqrt(np.square((pred - pred_mean) - (y - y_mean)).sum()/pred.size)
+
+def evaluate_test_torch(y, pred):
+
+    def eval_step(engine, batch):
+        return batch
+    
+    default_evaluator = Engine(eval_step)
+    
+    metric = MeanSquaredError()
+    metric.attach(default_evaluator, 'mse')
+    state = default_evaluator.run([[y, pred]])
+    mse = state.metrics['mse']
+
+    metric = MeanAbsoluteError()
+    metric.attach(default_evaluator, 'mae')
+    state = default_evaluator.run([[y, pred]])
+    mae = state.metrics['mae']
+
+    metric = MedianAbsoluteError()
+    metric.attach(default_evaluator, 'mae')
+    state = default_evaluator.run([[y, pred]])
+    mde = state.metrics['mae']
+
+    metric = R2Score()
+    metric.attach(default_evaluator, 'r2')
+    state = default_evaluator.run([[y, pred]])
+    r2 = state.metrics['r2']
+
+    metric = PearsonCorrelation()
+    metric.attach(default_evaluator, 'corr')
+    state = default_evaluator.run([[y, pred]])
+    corr = state.metrics['corr']
+
+    metric = RootMeanSquaredError()
+    metric.attach(default_evaluator, 'rmse')
+    state = default_evaluator.run([[y, pred]])
+    rmse = state.metrics['rmse']
+
+    scores = {
+        'mse':mse,
+        'mae':mae,
+        'medae':mde,
+        'max_error':torch.max(torch.abs(y - pred)).item(),
+        'bias':(torch.mean(pred) - torch.mean(y)).item(),
+        'r2':r2,
+        'corr':corr,
+        'cent_rmse':rmse,
+        'stdev' :torch.std(pred).item(),
+        'amp_ratio':((torch.max(pred)-torch.min(pred))/(torch.max(y)-torch.min(y))).item(), # added when doing temporal decomposition
+        'stdev_ref':torch.std(y).item(),
+        'range_ref':(torch.max(y)-torch.min(y)).item(),
+        'iqr_ref':(torch.quantile(y, 0.75) - torch.quantile(y, 0.25)).item()
+        }
+
+    return scores
 
 def evaluate_test(y, pred):
     """
@@ -609,7 +705,7 @@ def apply_splits(X, y, train_val_idx, train_idx, val_idx, test_idx):
 # Saving functions
 #===============================================
 
-def save_clean_data(df, data_output_dir, ens, member, dates):
+def save_clean_data(df, data_output_dir, ens, member, dates, save_format='parquet'):
     
     """
     Saves clean ML dataframe to be fed into ML algorithm
@@ -619,20 +715,30 @@ def save_clean_data(df, data_output_dir, ens, member, dates):
     df : pd.Dataframe
         Dataframe for ML algo
     
-    data_output_dir: str
-        Path to directory to save dataframe for ML
+    data_output_dir : str
+         GCS path (e.g., "gs://leap-persistent/Mukkke/...")
         
     """
     
     print("Starting data saving process")
 
-    init_date = str(dates[0].year) + format(dates[0].month,'02d')
-    fin_date = str(dates[-1].year) + format(dates[-1].month,'02d')
-    
-    output_dir = f"{data_output_dir}/{ens}/{member}"
-    fname = f"{output_dir}/MLinput_{ens}_{member.split('_')[-1]}_mon_1x1_{init_date}_{fin_date}.pkl"
-    df.to_pickle(fname)
-    print(f"{member} save complete")
+    init_date = f"{dates[0].year}{dates[0].month:02d}"
+    fin_date = f"{dates[-1].year}{dates[-1].month:02d}"
+ 
+    base_fname = f"MLinput_{ens}_{member.split('_')[-1]}_mon_1x1_{init_date}_{fin_date}"
+    fname = base_fname + (".parquet" if save_format == 'parquet' else ".pkl")
+    file_path = f"{data_output_dir}/{ens}/{member}/{fname}"
+ 
+    if save_format == 'parquet':
+        with fsspec.open(file_path, 'wb') as f:
+             df.to_parquet(f)
+    elif save_format == 'pickle':
+        with fsspec.open(file_path, 'wb') as f:
+            pickle.dump(df, f, protocol=pickle.HIGHEST_PROTOCOL)
+    else:
+        raise ValueError(f"Unsupported format: {save_format}")
+ 
+    print(f"{member} save complete ({save_format})")
 
 # def save_model(model, dates, model_output_dir, ens, member):
     
@@ -748,7 +854,7 @@ def save_model(model, dates, model_output_dir, ens, member):
 import os
 from pathlib import Path
 
-def save_model_locally(model, dates, local_output_dir, ens, member):
+def save_model_locally(model, dates, local_output_dir, ens, member, extension:str="json"):
     """
     Saves the trained XGBoost model to a local directory.
 
@@ -780,7 +886,7 @@ def save_model_locally(model, dates, local_output_dir, ens, member):
     fin_date = f"{dates[-1].year}{dates[-1].month:02d}"
 
     # Define the local filename
-    model_filename = f"model_pCO2_2D_{ens}_{member.split('_')[-1]}_mon_1x1_{init_date}_{fin_date}.json"
+    model_filename = f"model_pCO2_2D_{ens}_{member.split('_')[-1]}_mon_1x1_{init_date}_{fin_date}.{extension}"
     model_path = os.path.join(local_output_dir, model_filename)
 
     # Save the model
@@ -831,7 +937,9 @@ def save_recon(DS_recon, dates, recon_output_dir, ens, member):
     recon_fname = f"{recon_dir}/recon_pCO2residual_{ens}_{member}_mon_1x1_{init_date}_{fin_date}.zarr"
 
     print(recon_fname)
-    DS_recon.to_zarr(f'{recon_fname}', mode='w')
+    # DS_recon.to_zarr(f'{recon_fname}', mode='w')
+    DS_recon.to_zarr(f'{recon_fname}', mode='w', zarr_format=2)
+
     print("Save complete")
     
 def calc_recon_pco2(regridded_members_dir, pco2_recon_dir, selected_mems_dict, init_date, fin_date, owner_name=None):
@@ -885,7 +993,6 @@ def calc_recon_pco2(regridded_members_dir, pco2_recon_dir, selected_mems_dict, i
             print('save path:',file_out)
 
             ### Loading pCO2-T and reconstructed pCO2-residual:
-            #pco2T_series = xr.open_mfdataset(pco2T_path,engine='zarr').pco2_T.transpose("time","ylat","xlon").sel(time=slice(init_date_sel, fin_date_sel))
             pco2T_series = xr.open_zarr(pco2T_path).pco2_T.transpose("time","ylat","xlon").sel(time=slice(init_date_sel, fin_date_sel))
             pco2_ml_output = xr.open_zarr(pCO2R_path) #, consolidated=False, storage_options={"token": "cloud"}, group=None)
             
@@ -931,7 +1038,8 @@ def calc_recon_pco2(regridded_members_dir, pco2_recon_dir, selected_mems_dict, i
 
             ### for saving:
             comp = comp.chunk({'time':100,'ylat':45,'xlon':90})
-            comp.to_zarr(file_out)
+            comp.to_zarr(file_out, mode='w', zarr_format=2)
+
 
             print(f'finished with {member}')
             
