@@ -4,6 +4,7 @@
 import torch
 import torch.nn as nn
 from tqdm import tqdm
+import pickle
 import pandas as pd
 import numpy as np
 import gcsfs
@@ -236,6 +237,13 @@ class NeuralNetworkModel(Model):
         """
         train neural network
         """
+
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        x_train_val = torch.FloatTensor(data.x_train_val).to(device)
+        x_val = torch.FloatTensor(data.x_val).to(device)
+        y_train_val = torch.FloatTensor(data.y_train_val).to(device)
+        y_train_val = torch.FloatTensor(data.y_train_val).to(device)
+        y_val = torch.FloatTensor(data.y_val).to(device)
         
         # Add a progress bar
         with tqdm(total=self.epochs, desc="Training Progress", unit="epoch") as pbar:
@@ -243,14 +251,14 @@ class NeuralNetworkModel(Model):
                 
                 self.optimizer.zero_grad()  # Clear gradients from the previous step
                 
-                y_pred = self.predict(data.x_train_val)  # Forward pass for training data
-                valid_pred = self.predict(data.x_val)  # Forward pass for validation data
+                y_pred = self.predict(x_train_val)  # Forward pass for training data
+                valid_pred = self.predict(x_val)  # Forward pass for validation data
                 
                 # Loss used for gradient calculation
-                loss = self.loss_fn(y_pred, data.y_train_val)
+                loss = self.loss_fn(y_pred, y_train_val)
                 
-                train_loss = calculate_loss(actual=data.y_train_val, prediction=y_pred)
-                valid_loss = calculate_loss(actual=data.y_val, prediction=valid_pred)
+                train_loss = calculate_loss(actual=y_train_val, prediction=y_pred)
+                valid_loss = calculate_loss(actual=y_val, prediction=valid_pred)
                 
                 loss.backward()  # Backpropagate the gradient
                 self.optimizer.step()  # Update model parameter
@@ -319,6 +327,7 @@ class NeuralNetworkModel(Model):
                 y_pred_test
             )
 
+
 class DataParameters(object):
     def __init__(
         self,
@@ -335,29 +344,32 @@ class DataParameters(object):
         seen_val_mask:np.array,
         unseen_val_mask:np.array,
         df:pd.DataFrame,
-        data_as_tensor:bool,
-        device:str="cpu"
     ):
-        self.x_val = self._format_data(df=x_val, data_as_tensor=data_as_tensor, device=device)
-        self.y_val = self._format_data(df=y_val, data_as_tensor=data_as_tensor, device=device)
-        self.x_train_val = self._format_data(df=x_train_val, data_as_tensor=data_as_tensor, device=device)
-        self.y_train_val = self._format_data(df=y_train_val, data_as_tensor=data_as_tensor, device=device)
-        self.x_test = self._format_data(df=x_test, data_as_tensor=data_as_tensor, device=device)
-        self.y_test = self._format_data(df=y_test, data_as_tensor=data_as_tensor, device=device)
-        self.x_unseen = self._format_data(df=x_unseen, data_as_tensor=data_as_tensor, device=device)
-        self.y_unseen = self._format_data(df=y_unseen, data_as_tensor=data_as_tensor, device=device)
-        self.x_seen = self._format_data(df=x_seen, data_as_tensor=data_as_tensor, device=device)
-        self.y_seen = self._format_data(df=y_seen, data_as_tensor=data_as_tensor, device=device)
+        self.x_val = x_val
+        self.y_val = y_val
+        self.x_train_val = x_train_val
+        self.y_train_val = y_train_val
+        self.x_test = x_test
+        self.y_test = y_test
+        self.x_unseen = x_unseen
+        self.y_unseen = y_unseen
+        self.x_seen = x_seen
+        self.y_seen = y_seen
         self.seen_val_mask = seen_val_mask
         self.unseen_val_mask = unseen_val_mask
         self.df = df
 
-    def _format_data(self, df:pd.DataFrame, data_as_tensor:bool, device:str):
-        if data_as_tensor:
-            return torch.FloatTensor(df).to(device)
+    def save(self, path):
+        """Save this object to disk as a pickle file."""
+        with open(path, 'wb') as f:
+            pickle.dump(self, f)
 
-        return df
-        
+    @classmethod
+    def load(cls, path):
+        """Load this object from a pickle file."""
+        with open(path, 'rb') as f:
+            return pickle.load(f)
+
 
 #===============================================
 # Functions
@@ -463,8 +475,6 @@ def _extract_features_from_file(
     target:str,
     train_year_mon:list,
     test_year_mon:list, 
-    data_as_tensor:bool, 
-    device:str,
     random_seeds,
     seed_loc,
     test_proportion:float=0.0,
@@ -560,8 +570,6 @@ def _extract_features_from_file(
         seen_val_mask=seen_val_mask,
         unseen_val_mask=unseen_val_mask,
         df=df,
-        data_as_tensor=data_as_tensor,
-        device=device
     )
 
 
@@ -641,23 +649,19 @@ def _model_parameters(model_type:str):
     get model specific parameters
     """
     if Models(model_type) == Models.XGBOOST:
-        data_as_tensor = False
-        device = "cpu"
         extension = "json"
         
-        return device, data_as_tensor, extension
+        return extension
             
     elif Models(model_type) == Models.NEURAL_NETWORK:
-        data_as_tensor = True
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         extension = "pth"
 
-        return device, data_as_tensor, extension
+        return extension
             
     else:
         raise ValueError(f"model {model_type} not supported! The only models supported are: [`{Models.XGBOOST.value}`, `{Models.NEURAL_NETWORK.value}`]")
 
-def _get_new_model(model_type:str, data, random_seeds, seed_loc, **kwargs):
+def _get_new_model(model_type:str, data: DataParameters, random_seeds, seed_loc, **kwargs):
     """
     define model
     """
@@ -669,7 +673,6 @@ def _get_new_model(model_type:str, data, random_seeds, seed_loc, **kwargs):
             
     elif Models(model_type) == Models.NEURAL_NETWORK:
         model = NeuralNetworkModel(**kwargs)
-            
     else:
         raise ValueError(f"model {model_type} not supported! The only models supported are: [`{Models.XGBOOST.value}`, `{Models.NEURAL_NETWORK.value}`]")
 
@@ -702,7 +705,7 @@ def train_member_models(
             print(ens, member)
 
             seed_loc = seed_loc_dict[ens][member]
-            device, data_as_tensor, extension = _model_parameters(model_type=model_type)       
+            extension = _model_parameters(model_type=model_type)       
             
             # fetch data
             data = _extract_features_from_file(
@@ -714,8 +717,6 @@ def train_member_models(
                 target=target,
                 train_year_mon=train_year_mon,
                 test_year_mon=test_year_mon,
-                data_as_tensor=data_as_tensor,
-                device=device,
                 random_seeds=random_seeds,
                 seed_loc=seed_loc,
                 test_proportion=test_proportion,
@@ -733,7 +734,6 @@ def train_member_models(
                 member=member,
                 extension=extension,
                 saving_paths=saving_paths,
-                device=device,
                 **kwargs
             )
 
