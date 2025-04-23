@@ -233,8 +233,9 @@ class NeuralNetworkModel(Model):
         ).to(device)
     
     def predict(self, x):
+        x = self.maybe_torch(x)
         return self.model(x).T[0]
-
+    
     def train(self, data, batch_size=1024):
         x_train = self.maybe_torch(data.x_train_val)
         y_train = self.maybe_torch(data.y_train_val)
