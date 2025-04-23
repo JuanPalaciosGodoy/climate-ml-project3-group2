@@ -317,7 +317,19 @@ class NeuralNetworkModel(Model):
         
         self.loss_array = self.loss_array[:k,:]
 
+    @staticmethod
+    def maybe_torch(x):
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+        if isinstance(x, torch.Tensor):
+            return x
+        if isinstance(x, pd.DataFrame):
+            return torch.FloatTensor(x.to_numpy()).to(device)
+        elif isinstance(x, np.ndarray):
+            return torch.FloatTensor(x).to(device)
+
     def performance(self, x, y):
+        x = self.maybe_torch(x)
 
         # evaluate model performance
         y_pred_test = self.predict(x)
