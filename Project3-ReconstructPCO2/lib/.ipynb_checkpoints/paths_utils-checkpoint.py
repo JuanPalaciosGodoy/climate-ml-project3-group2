@@ -1,10 +1,12 @@
 class SavingPaths(object):
-    def __init__(self, your_username:str, owner_username:str, init_date:str, fin_date:str, grid_search_approach:str='nmse'):
+    def __init__(self, your_username:str, owner_username:str, init_date:str, fin_date:str, grid_search_approach:str='nmse', model:str="xgb"):
         self.your_username = your_username
         self.owner_username = owner_username
         self.grid_search_approach = grid_search_approach
         self.init_date = init_date
         self.fin_date = fin_date
+        self.model = model
+        self.alternate_model = "nn" if model == "xgb" else "nn"
 
     @property
     def inputs_path(self) -> str:
@@ -67,7 +69,21 @@ class SavingPaths(object):
         """
         where to save machine learning results
         """
-        return f'gs://leap-persistent/{self.your_username}/{self.owner_username}/pco2_residual/{self.grid_search_approach}/post02_xgb'
+        return f'gs://leap-persistent/{self.your_username}/{self.owner_username}/pco2_residual/{self.grid_search_approach}/post02_{self.model}'
+
+    @property
+    def output_dir_alternate(self) -> str:
+        """
+        where to save machine learning results
+        """
+        return f'gs://leap-persistent/{self.your_username}/{self.owner_username}/pco2_residual/{self.grid_search_approach}/post02_{self.alternate_model}'
+
+    @property
+    def recon_output_dir_alternate(self) -> str:
+        """
+        where to save ML reconstructions
+        """
+        return f"{self.output_dir_alternate}/reconstructions"
 
     @property
     def model_output_dir(self) -> str:

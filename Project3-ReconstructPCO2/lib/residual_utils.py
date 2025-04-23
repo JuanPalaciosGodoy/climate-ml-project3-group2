@@ -1063,3 +1063,130 @@ def calc_recon_pco2(regridded_members_dir, pco2_recon_dir, selected_mems_dict, i
                     print(f"Warning: {owner_file_out} not found. Skipping.")
                 print(f'finished with {member}')
 
+
+def calc_recon_pco2_modified(regridded_members_dir, pco2_recon_dir_xgb, pco2_recon_dir_nn, selected_mems_dict, init_date, fin_date, owner_name=None):
+    
+    """
+    Calculates reconstructed pco2 per member.
+    
+    Parameters
+    ----------
+    regridded_members_dir : str
+        Path to regridded data from notebook 00, which contains pco2T.
+    
+    pco2_recon_dir : str
+        Path to directory where ML reconstructions from notebook 02 are saved.
+    """
+    init_date_sel= pd.to_datetime(init_date, format="%Y%m")
+    fin_date_sel = pd.to_datetime(fin_date, format="%Y%m")
+    
+    if owner_name:
+        print("Reviewing process: Running ML only for the first member of the first ESM, loading remaining reconstructed data from the notebook owner.")  
+        first_ens = list(selected_mems_dict.keys())[0]  # Get the first ensemble key
+        first_mem = selected_mems_dict[first_ens][0]   # Get the first member in that ensemble
+        run_selected_mems_dict = {first_ens: [first_mem]}  # Create a dictionary with only the first ensemble and member
+        grid_search_approach = 'nmse'
+        owener_output_dir = f'gs://leap-persistent/{owner_name}/{owner_name}/pco2_residual/{grid_search_approach}/post02_xgb' # where to save machine learning results
+        owener_recon_output_dir = f"{owener_output_dir}/reconstructions" # where owner save ML reconstructions
+        
+    else:
+        run_selected_mems_dict = selected_mems_dict
+
+
+    for ens, mem_list in run_selected_mems_dict.items():
+        print(f"Current ESM: {ens}")
+
+        for member in mem_list:
+            print(f"On member {member}")
+
+            ### File paths ###
+            
+            ### Path to regridded data from notebook 00, so we can get the pCO2-T we calculated in 00
+            ### pCO2-T calculated from model pCO2 and SST
+            pco2T_path = f'{regridded_members_dir}/{ens}/{member}/{ens}.{member.split("_")[-1]}.Omon.zarr'
+            print('pco2T path:',pco2T_path)    
+
+            ### Path to reconstruction (ML output from notebook 02), where pCO2-residual was reconstructed
+            pCO2R_path_xgb = f"{pco2_recon_dir_xgb}/{ens}/{member}/recon_pCO2residual_{ens}_{member}_mon_1x1_{init_date}_{fin_date}.zarr"
+            pCO2R_path_nn = f"{pco2_recon_dir_nn}/{ens}/{member}/recon_pCO2residual_{ens}_{member}_mon_1x1_{init_date}_{fin_date}.zarr"
+            print(f'pCO2R XGBoost path:{pCO2R_path_xgb}')
+            print(f'pCO2R NeuralNetwork path:{pCO2R_path_nn}')
+
+            ### Path to save calculated pCO2 (reconstructed pCO2-residual PLUS pCO2-T: Total pCO2 =  pCO2-residual + pCO2-T)
+            file_out = f"{pco2_recon_dir_xgb}/{ens}/{member}/recon_pCO2_{ens}_{member}_mon_1x1_{init_date}_{fin_date}.zarr" # change this to just pco2
+            print('save path:',file_out)
+
+            ### Loading pCO2-T and reconstructed pCO2-residual:
+            pco2T_series = xr.open_zarr(pco2T_path).pco2_T.transpose("time","ylat","xlon").sel(time=slice(init_date_sel, fin_date_sel))
+            pco2_ml_output_xgb = xr.open_zarr(pCO2R_path_xgb) #, consolidated=False, storage_options={"token": "cloud"}, group=None)
+            pco2_ml_output_nn = xr.open_zarr(pCO2R_path_nn)
+            
+            ### unseen reconstructed pCO2-Residual from XGB
+            pCO2R_unseen_series_xgb = pco2_ml_output_xgb.pCO2_recon_unseen.transpose("time","ylat","xlon")
+            pCO2R_unseen_series_nn = pco2_ml_output_nn.pCO2_recon_unseen.transpose("time","ylat","xlon")
+            
+            ### Full (seen and unseen) reconstructed pCO2-Residual from XGB
+            pCO2R_full_series_xgb = pco2_ml_output_xgb.pCO2_recon_full.transpose("time","ylat","xlon")
+            pCO2R_full_series_nn = pco2_ml_output_nn.pCO2_recon_full.transpose("time","ylat","xlon")
+            
+            # ### training set for pco2 residual
+            # pCO2R_train_series = pco2_ml_output.pCO2_recon_train.transpose("time","ylat","xlon")
+            
+            # ### testing set for pco2 residual
+            # pCO2R_test_series = pco2_ml_output.pCO2_recon_test.transpose("time","ylat","xlon")
+
+            pCO2R_truth_xgb = pco2_ml_output_xgb.pCO2_truth.transpose("time","ylat","xlon")
+            pCO2R_truth_nn = pco2_ml_output_nn.pCO2_truth.transpose("time","ylat","xlon")
+            
+            ### Get time coordinate correct
+            pco2T_series = pco2T_series.assign_coords({"time":("time",pCO2R_unseen_series_xgb.time.data)})
+
+            ### Total pCO2 =  pCO2-residual + pCO2-T
+            pco2_unseen = pco2T_series + pCO2R_unseen_series_xgb + pCO2R_unseen_series_nn
+            pco2_full =  pco2T_series + pCO2R_full_series_xgb + pCO2R_full_series_nn
+            # pco2_train =  pco2T_series + pCO2R_train_series
+            # pco2_test =  pco2T_series + pCO2R_test_series
+            pco2_truth = pco2T_series + pCO2R_truth_xgb + pCO2R_truth_nn
+
+            ### Creating xarray of pco2 ML output, but with temperature added back 
+            comp = xr.Dataset({'pCO2_recon_unseen':(["time","ylat","xlon"],pco2_unseen.data), 
+                            'pCO2_recon_full':(["time","ylat","xlon"],pco2_full.data),
+                              # 'pCO2_recon_train':(["time","ylat","xlon"],pco2_train.data),
+                              # 'pCO2_recon_test':(["time","ylat","xlon"],pco2_test.data),
+                              'pCO2_truth':(["time","ylat","xlon"],pco2_truth.data)
+                              },
+                            coords={'time': (['time'],pco2T_series.time.values),
+                            'xlon':(['xlon'],pco2T_series.xlon.values),
+                            'ylat': (['ylat'],pco2T_series.ylat.values),
+                            })
+
+            ### to overwrite file if it exists already
+            if fs.exists(file_out):
+                fs.rm(file_out,recursive=True)
+
+            ### for saving:
+            comp = comp.chunk({'time':100,'ylat':45,'xlon':90})
+            comp.to_zarr(file_out, mode='w', zarr_format=2)
+
+
+            print(f'finished with {member}')
+            
+    if owner_name:
+        print("Copying remaining members from owner’s directory...")
+        for ens, mem_list in selected_mems_dict.items():
+            print(f"On member {member}")            
+            if ens in run_selected_mems_dict: 
+                remaining_members = [m for m in mem_list if m not in run_selected_mems_dict[ens]]
+            else:
+                remaining_members = mem_list
+                      
+            for member in remaining_members:
+                owner_file_out = f"{owener_recon_output_dir}/{ens}/{member}/recon_pCO2_{ens}_{member}_mon_1x1_{init_date}_{fin_date}.zarr"
+                target_file_out = f"{pco2_recon_dir_xgb}/{ens}/{member}/recon_pCO2_{ens}_{member}_mon_1x1_{init_date}_{fin_date}.zarr"
+    
+                if fs.exists(owner_file_out):  
+                    print(f"Copying {owner_file_out} → {target_file_out}")
+                    fs.copy(owner_file_out, target_file_out)
+                else:
+                    print(f"Warning: {owner_file_out} not found. Skipping.")
+                print(f'finished with {member}')

@@ -21,8 +21,8 @@ import lib.residual_utils as supporting_functions
 #===============================================
 
 class Models(Enum):
-    NEURAL_NETWORK = "NeuralNetwork"
-    XGBOOST = "XGBoost"
+    NEURAL_NETWORK = "nn"
+    XGBOOST = "xgb"
 
 class ColumnFields(Enum):
     PCO2_RECON_FULL = 'pCO2_recon_full'

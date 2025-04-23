@@ -165,6 +165,9 @@ def decompose_stl_fast_parallel_from_xarray(data, var_name, prefix='spco2', lo_f
     data_lowess = savgol_smoothing(data_deseason, dim='time')
     data_residual = data_deseason - data_lowess
     data_residual_low = savgol_smoothing(data_residual, dim='time')
+
+    data_seasonal_plus_trend = data_trend + data_seasonal
+    data_deseasonal_plus_trend = data_trend + data_deseason
         
     ds_out = xr.Dataset(
         {
@@ -172,6 +175,8 @@ def decompose_stl_fast_parallel_from_xarray(data, var_name, prefix='spco2', lo_f
             f'{prefix}_trend': data_trend,
             f'{prefix}_detrend': data_detrend,
             f'{prefix}_deseasonal': data_deseason,
+            f'{prefix}_trend_plus_seasonal': data_seasonal_plus_trend,
+            f'{prefix}_trend_plus_deseasonal': data_deseasonal_plus_trend,
             f'{prefix}_dec': data_lowess,
             f'{prefix}_seasonal': data_seasonal,
             f'{prefix}_residual': data_residual,
