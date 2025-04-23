@@ -202,12 +202,11 @@ class XGBoostModel(Model):
     
 
 class NeuralNetworkModel(Model):
-    def __init__(self, input_nodes, hidden_nodes, output_nodes, device, epochs:int=3000, patience:int=20, lr:float=1e-03, **kwargs):
+    def __init__(self, input_nodes, hidden_nodes, output_nodes, epochs:int=3000, patience:int=20, lr:float=1e-03, **kwargs):
         model = self._get_model(
             input_nodes,
             hidden_nodes,
             output_nodes,
-            device
         )
         super().__init__(model=model)
         self.epochs = epochs
@@ -220,10 +219,11 @@ class NeuralNetworkModel(Model):
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr)  # Adam optimizer
         self.loss_fn = torch.nn.L1Loss(reduction='mean')  # L1 loss for gradient computation
 
-    def _get_model(self, input_nodes, hidden_nodes, output_nodes, device):
+    def _get_model(self, input_nodes, hidden_nodes, output_nodes):
         """
         initialize neural network model
         """
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
         return KappaLayers(
             input_nodes,
             hidden_nodes,
