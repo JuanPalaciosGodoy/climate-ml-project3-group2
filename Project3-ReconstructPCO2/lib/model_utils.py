@@ -385,18 +385,26 @@ class NeuralNetworkModel(Model):
             return torch.FloatTensor(x.to_numpy()).to(device)
         elif isinstance(x, np.ndarray):
             return torch.FloatTensor(x).to(device)
+        
+    def performance(self, x, y, batch_size=1024):
+        self.model.eval()
 
-    def performance(self, x, y):
+        # Ensure tensors
         x = self.maybe_torch(x)
         y = self.maybe_torch(y)
 
-        # evaluate model performance
-        y_pred_test = self.predict(x)
+        preds = []
+        with torch.no_grad():
+            for i in range(0, len(x), batch_size):
+                batch_x = x[i:i+batch_size]
+                batch_preds = self.predict(batch_x)
+                preds.append(batch_preds.cpu())
 
-        return supporting_functions.evaluate_test_torch(
-                y,
-                y_pred_test
-            )
+        y_pred_test = torch.cat(preds).to(y.device)
+
+        return supporting_functions.evaluate_test_torch(y, y_pred_test)
+
+
 
 
 class DataParameters(object):
