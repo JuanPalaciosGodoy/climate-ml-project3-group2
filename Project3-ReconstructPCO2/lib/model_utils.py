@@ -15,6 +15,8 @@ import xgboost as xgb
 from collections import defaultdict
 from enum import Enum
 import lib.residual_utils as supporting_functions
+    
+from torch.utils.data import TensorDataset, DataLoader
 
 
 #===============================================
@@ -233,7 +235,63 @@ class NeuralNetworkModel(Model):
     def predict(self, x):
         return self.model(x).T[0]
 
-    def train(self, data):
+    def train(self, data, batch_size=1024):
+        dataset = TensorDataset(data.x_train_val, data.y_train_val)
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+        val_dataset = TensorDataset(data.x_val, data.y_val)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size)
+
+        with tqdm(total=self.epochs, desc="Training Progress", unit="epoch") as pbar:
+            for epoch in range(self.epochs):
+                self.model.train()
+                train_loss_epoch = 0.0
+                for x_batch, y_batch in dataloader:
+                    self.optimizer.zero_grad()
+
+                    y_pred = self.predict(x_batch)
+                    loss = self.loss_fn(y_pred, y_batch)
+                    loss.backward()
+                    self.optimizer.step()
+
+                    train_loss_epoch += loss.item() * x_batch.size(0)
+
+                train_loss_epoch /= len(dataset)
+
+                # Validation loss calculation
+                self.model.eval()
+                val_loss_epoch = 0.0
+                with torch.no_grad():
+                    for x_val_batch, y_val_batch in val_loader:
+                        y_val_pred = self.predict(x_val_batch)
+                        val_loss_epoch += self.loss_fn(y_val_pred, y_val_batch).item() * x_val_batch.size(0)
+
+                val_loss_epoch /= len(val_dataset)
+
+                # Update results
+                self.update_results(
+                    k=epoch,
+                    train_loss=train_loss_epoch,
+                    valid_loss=val_loss_epoch,
+                    model_state=self.model.state_dict()
+                )
+
+                # Progress bar update
+                pbar = update_progress_bar(
+                    pbar=pbar,
+                    train_loss=train_loss_epoch,
+                    valid_loss=val_loss_epoch,
+                    no_improvement=self.no_improvement
+                )
+
+                if self.exceeded_patience():
+                    print(f"\nEarly stopping at epoch {epoch+1}.")
+                    break
+
+        self.restore_best_model(epoch)
+
+
+    def train2(self, data):
         """
         train neural network
         """
