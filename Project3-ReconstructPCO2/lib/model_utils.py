@@ -247,9 +247,6 @@ class NeuralNetworkModel(Model):
         val_dataset = TensorDataset(x_val, y_val)
         val_loader = DataLoader(val_dataset, batch_size=batch_size)
 
-        val_dataset = TensorDataset(data.x_val, data.y_val)
-        val_loader = DataLoader(val_dataset, batch_size=batch_size)
-
         with tqdm(total=self.epochs, desc="Training Progress", unit="epoch") as pbar:
             for epoch in range(self.epochs):
                 self.model.train()
