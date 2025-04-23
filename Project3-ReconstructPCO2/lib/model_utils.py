@@ -330,6 +330,7 @@ class NeuralNetworkModel(Model):
 
     def performance(self, x, y):
         x = self.maybe_torch(x)
+        y = self.maybe_torch(y)
 
         # evaluate model performance
         y_pred_test = self.predict(x)
