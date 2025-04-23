@@ -236,8 +236,16 @@ class NeuralNetworkModel(Model):
         return self.model(x).T[0]
 
     def train(self, data, batch_size=1024):
-        dataset = TensorDataset(data.x_train_val, data.y_train_val)
+        x_train = self.maybe_torch(data.x_train_val)
+        y_train = self.maybe_torch(data.y_train_val)
+        x_val = self.maybe_torch(data.x_val)
+        y_val = self.maybe_torch(data.y_val)
+
+        dataset = TensorDataset(x_train, y_train)
         dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+        val_dataset = TensorDataset(x_val, y_val)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size)
 
         val_dataset = TensorDataset(data.x_val, data.y_val)
         val_loader = DataLoader(val_dataset, batch_size=batch_size)
@@ -390,13 +398,13 @@ class NeuralNetworkModel(Model):
         self.model.eval()
 
         # Ensure tensors
-        x = self.maybe_torch(x)
         y = self.maybe_torch(y)
 
         preds = []
         with torch.no_grad():
             for i in range(0, len(x), batch_size):
                 batch_x = x[i:i+batch_size]
+                batch_x = self.maybe_torch(batch_x)
                 batch_preds = self.predict(batch_x)
                 preds.append(batch_preds.cpu())
 
