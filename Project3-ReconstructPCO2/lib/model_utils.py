@@ -236,7 +236,7 @@ class NeuralNetworkModel(Model):
         x = self.maybe_torch(x)
         return self.model(x).T[0]
     
-    def train(self, data, batch_size=1024):
+    def train(self, data, batch_size=2000000):
         x_train = self.maybe_torch(data.x_train_val)
         y_train = self.maybe_torch(data.y_train_val)
         x_val = self.maybe_torch(data.x_val)
@@ -248,15 +248,18 @@ class NeuralNetworkModel(Model):
         val_dataset = TensorDataset(x_val, y_val)
         val_loader = DataLoader(val_dataset, batch_size=batch_size)
 
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
         with tqdm(total=self.epochs, desc="Training Progress", unit="epoch") as pbar:
             for epoch in range(self.epochs):
                 self.model.train()
                 train_loss_epoch = 0.0
                 for x_batch, y_batch in dataloader:
                     self.optimizer.zero_grad()
-
-                    y_pred = self.predict(x_batch)
-                    loss = self.loss_fn(y_pred, y_batch)
+                    
+                    with torch.amp.autocast(device):
+                        y_pred = self.predict(x_batch)
+                        loss = self.loss_fn(y_pred, y_batch)
                     loss.backward()
                     self.optimizer.step()
 
@@ -269,8 +272,9 @@ class NeuralNetworkModel(Model):
                 val_loss_epoch = 0.0
                 with torch.no_grad():
                     for x_val_batch, y_val_batch in val_loader:
-                        y_val_pred = self.predict(x_val_batch)
-                        val_loss_epoch += self.loss_fn(y_val_pred, y_val_batch).item() * x_val_batch.size(0)
+                        with torch.amp.autocast(device):
+                            y_val_pred = self.predict(x_val_batch)
+                            val_loss_epoch += self.loss_fn(y_val_pred, y_val_batch).item() * x_val_batch.size(0)
 
                 val_loss_epoch /= len(val_dataset)
 
@@ -392,8 +396,9 @@ class NeuralNetworkModel(Model):
         elif isinstance(x, np.ndarray):
             return torch.FloatTensor(x).to(device)
         
-    def performance(self, x, y, batch_size=1024):
+    def performance(self, x, y, batch_size=2000000):
         self.model.eval()
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
         # Ensure tensors
         y = self.maybe_torch(y)
@@ -401,10 +406,11 @@ class NeuralNetworkModel(Model):
         preds = []
         with torch.no_grad():
             for i in range(0, len(x), batch_size):
-                batch_x = x[i:i+batch_size]
-                batch_x = self.maybe_torch(batch_x)
-                batch_preds = self.predict(batch_x)
-                preds.append(batch_preds.cpu())
+                with torch.amp.autocast(device):
+                    batch_x = x[i:i+batch_size]
+                    batch_x = self.maybe_torch(batch_x)
+                    batch_preds = self.predict(batch_x)
+                    preds.append(batch_preds.cpu())
 
         y_pred_test = torch.cat(preds).to(y.device)
 
@@ -715,6 +721,7 @@ def _load_model(model_type:str, ens:str, member:str, extension:str, saving_paths
     elif Models(model_type) == Models.NEURAL_NETWORK:
         # Create a new instance of the network
         model = NeuralNetworkModel(**kwargs)
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
         
         # Load the saved state_dict
         checkpoint = torch.load(model_path)
@@ -723,6 +730,8 @@ def _load_model(model_type:str, ens:str, member:str, extension:str, saving_paths
         model.model.load_state_dict(checkpoint)
 
         model.model.eval()
+
+        model.model = model.model.to(device)
 
         return model
             

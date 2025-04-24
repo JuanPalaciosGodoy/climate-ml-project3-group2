@@ -4,6 +4,7 @@
 import torch
 import torch.nn as nn
 from tqdm import tqdm
+import pickle
 import pandas as pd
 import numpy as np
 import gcsfs
@@ -14,6 +15,8 @@ import xgboost as xgb
 from collections import defaultdict
 from enum import Enum
 import lib.residual_utils as supporting_functions
+    
+from torch.utils.data import TensorDataset, DataLoader
 
 
 #===============================================
@@ -201,12 +204,11 @@ class XGBoostModel(Model):
     
 
 class NeuralNetworkModel(Model):
-    def __init__(self, input_nodes, hidden_nodes, output_nodes, device, epochs:int=3000, patience:int=20, lr:float=1e-03, **kwargs):
+    def __init__(self, input_nodes, hidden_nodes, output_nodes, epochs:int=3000, patience:int=20, lr:float=1e-03, **kwargs):
         model = self._get_model(
             input_nodes,
             hidden_nodes,
             output_nodes,
-            device
         )
         super().__init__(model=model)
         self.epochs = epochs
@@ -219,10 +221,11 @@ class NeuralNetworkModel(Model):
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr)  # Adam optimizer
         self.loss_fn = torch.nn.L1Loss(reduction='mean')  # L1 loss for gradient computation
 
-    def _get_model(self, input_nodes, hidden_nodes, output_nodes, device):
+    def _get_model(self, input_nodes, hidden_nodes, output_nodes):
         """
         initialize neural network model
         """
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
         return KappaLayers(
             input_nodes,
             hidden_nodes,
@@ -230,12 +233,85 @@ class NeuralNetworkModel(Model):
         ).to(device)
     
     def predict(self, x):
+        x = self.maybe_torch(x)
         return self.model(x).T[0]
+    
+    def train(self, data, batch_size=2000000):
+        x_train = self.maybe_torch(data.x_train_val)
+        y_train = self.maybe_torch(data.y_train_val)
+        x_val = self.maybe_torch(data.x_val)
+        y_val = self.maybe_torch(data.y_val)
 
-    def train(self, data):
+        dataset = TensorDataset(x_train, y_train)
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+        val_dataset = TensorDataset(x_val, y_val)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size)
+
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+        with tqdm(total=self.epochs, desc="Training Progress", unit="epoch") as pbar:
+            for epoch in range(self.epochs):
+                self.model.train()
+                train_loss_epoch = 0.0
+                for x_batch, y_batch in dataloader:
+                    self.optimizer.zero_grad()
+                    
+                    with torch.amp.autocast(device):
+                        y_pred = self.predict(x_batch)
+                        loss = self.loss_fn(y_pred, y_batch)
+                    loss.backward()
+                    self.optimizer.step()
+
+                    train_loss_epoch += loss.item() * x_batch.size(0)
+
+                train_loss_epoch /= len(dataset)
+
+                # Validation loss calculation
+                self.model.eval()
+                val_loss_epoch = 0.0
+                with torch.no_grad():
+                    for x_val_batch, y_val_batch in val_loader:
+                        with torch.amp.autocast(device):
+                            y_val_pred = self.predict(x_val_batch)
+                            val_loss_epoch += self.loss_fn(y_val_pred, y_val_batch).item() * x_val_batch.size(0)
+
+                val_loss_epoch /= len(val_dataset)
+
+                # Update results
+                self.update_results(
+                    k=epoch,
+                    train_loss=train_loss_epoch,
+                    valid_loss=val_loss_epoch,
+                    model_state=self.model.state_dict()
+                )
+
+                # Progress bar update
+                pbar = update_progress_bar(
+                    pbar=pbar,
+                    train_loss=train_loss_epoch,
+                    valid_loss=val_loss_epoch,
+                    no_improvement=self.no_improvement
+                )
+
+                if self.exceeded_patience():
+                    print(f"\nEarly stopping at epoch {epoch+1}.")
+                    break
+
+        self.restore_best_model(epoch)
+
+
+    def train2(self, data):
         """
         train neural network
         """
+
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        x_train_val = torch.FloatTensor(data.x_train_val).to(device)
+        x_val = torch.FloatTensor(data.x_val).to(device)
+        y_train_val = torch.FloatTensor(data.y_train_val).to(device)
+        y_train_val = torch.FloatTensor(data.y_train_val).to(device)
+        y_val = torch.FloatTensor(data.y_val).to(device)
         
         # Add a progress bar
         with tqdm(total=self.epochs, desc="Training Progress", unit="epoch") as pbar:
@@ -243,14 +319,14 @@ class NeuralNetworkModel(Model):
                 
                 self.optimizer.zero_grad()  # Clear gradients from the previous step
                 
-                y_pred = self.predict(data.x_train_val)  # Forward pass for training data
-                valid_pred = self.predict(data.x_val)  # Forward pass for validation data
+                y_pred = self.predict(x_train_val)  # Forward pass for training data
+                valid_pred = self.predict(x_val)  # Forward pass for validation data
                 
                 # Loss used for gradient calculation
-                loss = self.loss_fn(y_pred, data.y_train_val)
+                loss = self.loss_fn(y_pred, y_train_val)
                 
-                train_loss = calculate_loss(actual=data.y_train_val, prediction=y_pred)
-                valid_loss = calculate_loss(actual=data.y_val, prediction=valid_pred)
+                train_loss = calculate_loss(actual=y_train_val, prediction=y_pred)
+                valid_loss = calculate_loss(actual=y_val, prediction=valid_pred)
                 
                 loss.backward()  # Backpropagate the gradient
                 self.optimizer.step()  # Update model parameter
@@ -309,15 +385,39 @@ class NeuralNetworkModel(Model):
         
         self.loss_array = self.loss_array[:k,:]
 
-    def performance(self, x, y):
+    @staticmethod
+    def maybe_torch(x):
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-        # evaluate model performance
-        y_pred_test = self.predict(x)
+        if isinstance(x, torch.Tensor):
+            return x
+        if isinstance(x, pd.DataFrame):
+            return torch.FloatTensor(x.to_numpy()).to(device)
+        elif isinstance(x, np.ndarray):
+            return torch.FloatTensor(x).to(device)
+        
+    def performance(self, x, y, batch_size=2000000):
+        self.model.eval()
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-        return supporting_functions.evaluate_test_torch(
-                y,
-                y_pred_test
-            )
+        # Ensure tensors
+        y = self.maybe_torch(y)
+
+        preds = []
+        with torch.no_grad():
+            for i in range(0, len(x), batch_size):
+                with torch.amp.autocast(device):
+                    batch_x = x[i:i+batch_size]
+                    batch_x = self.maybe_torch(batch_x)
+                    batch_preds = self.predict(batch_x)
+                    preds.append(batch_preds.cpu())
+
+        y_pred_test = torch.cat(preds).to(y.device)
+
+        return supporting_functions.evaluate_test_torch(y, y_pred_test)
+
+
+
 
 class DataParameters(object):
     def __init__(
@@ -335,29 +435,32 @@ class DataParameters(object):
         seen_val_mask:np.array,
         unseen_val_mask:np.array,
         df:pd.DataFrame,
-        data_as_tensor:bool,
-        device:str="cpu"
     ):
-        self.x_val = self._format_data(df=x_val, data_as_tensor=data_as_tensor, device=device)
-        self.y_val = self._format_data(df=y_val, data_as_tensor=data_as_tensor, device=device)
-        self.x_train_val = self._format_data(df=x_train_val, data_as_tensor=data_as_tensor, device=device)
-        self.y_train_val = self._format_data(df=y_train_val, data_as_tensor=data_as_tensor, device=device)
-        self.x_test = self._format_data(df=x_test, data_as_tensor=data_as_tensor, device=device)
-        self.y_test = self._format_data(df=y_test, data_as_tensor=data_as_tensor, device=device)
-        self.x_unseen = self._format_data(df=x_unseen, data_as_tensor=data_as_tensor, device=device)
-        self.y_unseen = self._format_data(df=y_unseen, data_as_tensor=data_as_tensor, device=device)
-        self.x_seen = self._format_data(df=x_seen, data_as_tensor=data_as_tensor, device=device)
-        self.y_seen = self._format_data(df=y_seen, data_as_tensor=data_as_tensor, device=device)
+        self.x_val = x_val
+        self.y_val = y_val
+        self.x_train_val = x_train_val
+        self.y_train_val = y_train_val
+        self.x_test = x_test
+        self.y_test = y_test
+        self.x_unseen = x_unseen
+        self.y_unseen = y_unseen
+        self.x_seen = x_seen
+        self.y_seen = y_seen
         self.seen_val_mask = seen_val_mask
         self.unseen_val_mask = unseen_val_mask
         self.df = df
 
-    def _format_data(self, df:pd.DataFrame, data_as_tensor:bool, device:str):
-        if data_as_tensor:
-            return torch.FloatTensor(df).to(device)
+    def save(self, path):
+        """Save this object to disk as a pickle file."""
+        with open(path, 'wb') as f:
+            pickle.dump(self, f)
 
-        return df
-        
+    @classmethod
+    def load(cls, path):
+        """Load this object from a pickle file."""
+        with open(path, 'rb') as f:
+            return pickle.load(f)
+
 
 #===============================================
 # Functions
@@ -463,8 +566,6 @@ def _extract_features_from_file(
     target:str,
     train_year_mon:list,
     test_year_mon:list, 
-    data_as_tensor:bool, 
-    device:str,
     random_seeds,
     seed_loc,
     test_proportion:float=0.0,
@@ -560,8 +661,6 @@ def _extract_features_from_file(
         seen_val_mask=seen_val_mask,
         unseen_val_mask=unseen_val_mask,
         df=df,
-        data_as_tensor=data_as_tensor,
-        device=device
     )
 
 
@@ -622,6 +721,7 @@ def _load_model(model_type:str, ens:str, member:str, extension:str, saving_paths
     elif Models(model_type) == Models.NEURAL_NETWORK:
         # Create a new instance of the network
         model = NeuralNetworkModel(**kwargs)
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
         
         # Load the saved state_dict
         checkpoint = torch.load(model_path)
@@ -630,6 +730,8 @@ def _load_model(model_type:str, ens:str, member:str, extension:str, saving_paths
         model.model.load_state_dict(checkpoint)
 
         model.model.eval()
+
+        model.model = model.model.to(device)
 
         return model
             
@@ -641,23 +743,19 @@ def _model_parameters(model_type:str):
     get model specific parameters
     """
     if Models(model_type) == Models.XGBOOST:
-        data_as_tensor = False
-        device = "cpu"
         extension = "json"
         
-        return device, data_as_tensor, extension
+        return extension
             
     elif Models(model_type) == Models.NEURAL_NETWORK:
-        data_as_tensor = True
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         extension = "pth"
 
-        return device, data_as_tensor, extension
+        return extension
             
     else:
         raise ValueError(f"model {model_type} not supported! The only models supported are: [`{Models.XGBOOST.value}`, `{Models.NEURAL_NETWORK.value}`]")
 
-def _get_new_model(model_type:str, data, random_seeds, seed_loc, **kwargs):
+def _get_new_model(model_type:str, data: DataParameters, random_seeds, seed_loc, **kwargs):
     """
     define model
     """
@@ -669,7 +767,6 @@ def _get_new_model(model_type:str, data, random_seeds, seed_loc, **kwargs):
             
     elif Models(model_type) == Models.NEURAL_NETWORK:
         model = NeuralNetworkModel(**kwargs)
-            
     else:
         raise ValueError(f"model {model_type} not supported! The only models supported are: [`{Models.XGBOOST.value}`, `{Models.NEURAL_NETWORK.value}`]")
 
@@ -702,7 +799,7 @@ def train_member_models(
             print(ens, member)
 
             seed_loc = seed_loc_dict[ens][member]
-            device, data_as_tensor, extension = _model_parameters(model_type=model_type)       
+            extension = _model_parameters(model_type=model_type)       
             
             # fetch data
             data = _extract_features_from_file(
@@ -714,8 +811,6 @@ def train_member_models(
                 target=target,
                 train_year_mon=train_year_mon,
                 test_year_mon=test_year_mon,
-                data_as_tensor=data_as_tensor,
-                device=device,
                 random_seeds=random_seeds,
                 seed_loc=seed_loc,
                 test_proportion=test_proportion,
@@ -733,7 +828,6 @@ def train_member_models(
                 member=member,
                 extension=extension,
                 saving_paths=saving_paths,
-                device=device,
                 **kwargs
             )
 
