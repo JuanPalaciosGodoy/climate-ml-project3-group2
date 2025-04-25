@@ -50,7 +50,8 @@ class KappaLayers(nn.Module):
         self.linear1 = nn.Linear(input_nodes, hidden_nodes)  # First layer: Input to hidden
         self.linear2 = nn.Linear(hidden_nodes, hidden_nodes) # Second layer: Hidden to hidden
         self.linear3 = nn.Linear(hidden_nodes, hidden_nodes) # Second layer: Hidden to hidden
-        self.linear4 = nn.Linear(hidden_nodes, output_nodes) # Third layer: Hidden to output
+        self.linear4 = nn.Linear(hidden_nodes, hidden_nodes) # Third layer: Hidden to output
+        self.linear5 = nn.Linear(hidden_nodes, output_nodes) # Third layer: Hidden to output
         self.dropout = nn.Dropout(0.25) # Dropout for regularization
 
     def forward(self, x):
@@ -66,7 +67,11 @@ class KappaLayers(nn.Module):
         x = torch.relu(x) # ReLU activation for layer 2
         x = self.dropout(x) # Apply dropout
 
-        x = self.linear4(x) # Final output layer
+        x = self.linear4(x)
+        x = torch.relu(x) # ReLU activation for layer 2
+        x = self.dropout(x) # Apply dropout
+
+        x = self.linear5(x) # Final output layer
         return x
 
 
@@ -215,7 +220,7 @@ class XGBoostModel(Model):
     
 
 class NeuralNetworkModel(Model):
-    def __init__(self, input_nodes, hidden_nodes, output_nodes, epochs:int=3000, patience:int=100, lr:float=1e-03, **kwargs):
+    def __init__(self, input_nodes, hidden_nodes, output_nodes, epochs:int=3000, patience:int=400, lr:float=1e-03, **kwargs):
         model = self._get_model(
             input_nodes,
             hidden_nodes,
