@@ -1,6 +1,7 @@
 #===============================================
 # Imports
 #===============================================
+import gc
 import torch
 import torch.nn as nn
 from tqdm import tqdm
@@ -133,8 +134,9 @@ class Model(object):
         print("Len(x_seen):", len(x_seen))
         print("Len(x_unseen):", len(x_unseen))
         y_pred_seen = _as_numpy(self.predict(x_seen))
+        gc.collect()
         torch.cuda.empty_cache()
-        y_pred_unseen = _as_numpy(self.predict(x_unseen, batch_size=512))
+        y_pred_unseen = _as_numpy(self.predict(x_unseen, batch_size=256))
 
         # save full reconstruction
         df[ColumnFields.PCO2_RECON_FULL.value] = np.nan
@@ -244,6 +246,7 @@ class NeuralNetworkModel(Model):
             batch_x = self.maybe_torch(batch_x)
             batch_preds = self.model(batch_x).T[0].cpu()
             preds.append(batch_preds)
+            del batch_x
 
         return torch.cat(preds)
 
