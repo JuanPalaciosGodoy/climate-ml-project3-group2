@@ -248,15 +248,10 @@ class NeuralNetworkModel(Model):
         return torch.cat(preds)
 
     def train(self, data, batch_size=1024):
-        x_train = self.maybe_torch(data.x_train_val)
-        y_train = self.maybe_torch(data.y_train_val)
-        x_val = self.maybe_torch(data.x_val)
-        y_val = self.maybe_torch(data.y_val)
-
-        dataset = TensorDataset(x_train, y_train)
+        dataset = TensorDataset(data.x_train, data.y_train)
         dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
-        val_dataset = TensorDataset(x_val, y_val)
+        val_dataset = TensorDataset(data.x_val, data.y_val)
         val_loader = DataLoader(val_dataset, batch_size=batch_size)
 
         with tqdm(total=self.epochs, desc="Training Progress", unit="epoch") as pbar:
@@ -264,6 +259,9 @@ class NeuralNetworkModel(Model):
                 self.model.train()
                 train_loss_epoch = 0.0
                 for x_batch, y_batch in dataloader:
+                    x_batch = self.maybe_torch(x_batch)
+                    y_batch = self.maybe_torch(y_batch)
+
                     self.optimizer.zero_grad()
 
                     y_pred = self.predict(x_batch)
@@ -280,6 +278,8 @@ class NeuralNetworkModel(Model):
                 val_loss_epoch = 0.0
                 with torch.no_grad():
                     for x_val_batch, y_val_batch in val_loader:
+                        x_val_batch = self.maybe_torch(x_val_batch)
+                        y_val_batch = self.maybe_torch(y_val_batch)
                         y_val_pred = self.predict(x_val_batch)
                         val_loss_epoch += self.loss_fn(y_val_pred, y_val_batch).item() * x_val_batch.size(0)
 
@@ -308,63 +308,6 @@ class NeuralNetworkModel(Model):
         self.restore_best_model(epoch)
 
 
-    def train2(self, data):
-        """
-        train neural network
-        """
-
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        x_train_val = torch.FloatTensor(data.x_train_val).to(device)
-        x_val = torch.FloatTensor(data.x_val).to(device)
-        y_train_val = torch.FloatTensor(data.y_train_val).to(device)
-        y_train_val = torch.FloatTensor(data.y_train_val).to(device)
-        y_val = torch.FloatTensor(data.y_val).to(device)
-        
-        # Add a progress bar
-        with tqdm(total=self.epochs, desc="Training Progress", unit="epoch") as pbar:
-            for k in range(self.epochs):
-                
-                self.optimizer.zero_grad()  # Clear gradients from the previous step
-                
-                y_pred = self.predict(x_train_val)  # Forward pass for training data
-                valid_pred = self.predict(x_val)  # Forward pass for validation data
-                
-                # Loss used for gradient calculation
-                loss = self.loss_fn(y_pred, y_train_val)
-                
-                train_loss = calculate_loss(actual=y_train_val, prediction=y_pred)
-                valid_loss = calculate_loss(actual=y_val, prediction=valid_pred)
-                
-                loss.backward()  # Backpropagate the gradient
-                self.optimizer.step()  # Update model parameter
-    
-                # update progress bar
-                pbar = update_progress_bar(
-                    pbar=pbar,
-                    train_loss=train_loss,
-                    valid_loss=valid_loss,
-                    no_improvement=self.no_improvement
-                )
-    
-                # update results
-                self.update_results(
-                    k=k,
-                    train_loss=train_loss,
-                    valid_loss=valid_loss,
-                    model_state=self.model.state_dict()
-                )
-    
-                # If no improvement for 'patience' epochs, stop training
-                if self.exceeded_patience():
-                    print(f"\nEarly stopping at epoch {k+1}. Validation loss has not improved for {self.patience} epochs.")
-                    break
-    
-                # Free memory by deleting intermediate variables
-                del loss, y_pred
-                
-        # Restore the best model state after training
-        self.restore_best_model(k)
-    
     def update_results(self, k:int, train_loss:float, valid_loss:float, model_state:dict) -> None:
 
         # Record the losses for this epoch
