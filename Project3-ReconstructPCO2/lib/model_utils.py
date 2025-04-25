@@ -235,7 +235,6 @@ class NeuralNetworkModel(Model):
         ).to(device)
     
     def predict(self, x, batch_size=1024):
-        x = self.maybe_torch(x)
         preds = []
 
         self.model.eval()
@@ -243,7 +242,7 @@ class NeuralNetworkModel(Model):
             for i in range(0, len(x), batch_size):
                 batch_x = x[i:i+batch_size]
                 batch_x = self.maybe_torch(batch_x)
-                batch_preds = self.model(x).T[0]
+                batch_preds = self.model(batch_x).T[0]
                 preds.append(batch_preds.cpu())
 
         return torch.cat(preds)
