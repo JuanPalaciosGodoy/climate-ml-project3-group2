@@ -247,7 +247,7 @@ class NeuralNetworkModel(Model):
                 batch_x = x[i:i+batch_size]
                 batch_x = self.maybe_torch(batch_x)
                 batch_preds = self.model(batch_x).T[0]
-                preds.append(batch_preds.cpu())
+                preds.append(batch_preds)
 
         return torch.cat(preds)
 
