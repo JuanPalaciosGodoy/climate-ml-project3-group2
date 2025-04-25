@@ -129,6 +129,8 @@ class Model(object):
     def save_reconstruction(self, ens:str, member:str, df:pd.DataFrame, x_seen:np.array, x_unseen:np.array, seen_mask:np.array, unseen_mask:np.array, dates, path:str, target:str):
 
         # calculate predictions
+        print("Len(x_seen):", len(x_seen))
+        print("Len(x_unseen):", len(x_unseen))
         y_pred_seen = _as_numpy(self.predict(x_seen))
         y_pred_unseen = _as_numpy(self.predict(x_unseen))
 
@@ -232,10 +234,19 @@ class NeuralNetworkModel(Model):
             output_nodes
         ).to(device)
     
-    def predict(self, x):
-        x = self.maybe_torch(x)
-        return self.model(x).T[0]
-    
+    def predict(self, x, batch_size=1024):
+        preds = []
+
+        self.model.eval()
+        with torch.no_grad():
+            for i in range(0, len(x), batch_size):
+                batch_x = x[i:i+batch_size]
+                batch_x = self.maybe_torch(batch_x)
+                batch_preds = self.predict(batch_x)
+                preds.append(batch_preds.cpu())
+
+        return torch.cat(preds)
+
     def train(self, data, batch_size=1024):
         x_train = self.maybe_torch(data.x_train_val)
         y_train = self.maybe_torch(data.y_train_val)
