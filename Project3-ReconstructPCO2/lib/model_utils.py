@@ -1,9 +1,11 @@
 #===============================================
 # Imports
 #===============================================
+import gc
 import torch
 import torch.nn as nn
 from tqdm import tqdm
+import pickle
 import pandas as pd
 import numpy as np
 import gcsfs
@@ -14,6 +16,8 @@ import xgboost as xgb
 from collections import defaultdict
 from enum import Enum
 import lib.residual_utils as supporting_functions
+    
+from torch.utils.data import TensorDataset, DataLoader
 
 
 #===============================================
@@ -50,20 +54,21 @@ class KappaLayers(nn.Module):
         self.dropout = nn.Dropout(0.25) # Dropout for regularization
 
     def forward(self, x):
-        x2 = self.linear1(x)
-        h1 = torch.relu(x2)            # ReLU activation for layer 1
-        h1 = self.dropout(h1)          # Apply dropout
-        
-        h2 = self.linear2(h1)
-        h3 = torch.relu(h2)            # ReLU activation for layer 2
-        h3 = self.dropout(h3)          # Apply dropout
+        x = self.linear1(x)
+        x = torch.relu(x)  # ReLU activation for layer 1
+        x = self.dropout(x) # Apply dropout
 
-        h3 = self.linear3(h1)
-        h4 = torch.relu(h2)            # ReLU activation for layer 2
-        h4 = self.dropout(h3)          # Apply dropout
+        x = self.linear2(x)
+        x = torch.relu(x) # ReLU activation for layer 2
+        x = self.dropout(x) # Apply dropout
 
-        y_pred = self.linear4(h4)      # Final output layer
-        return y_pred
+        x = self.linear3(x)
+        x = torch.relu(x) # ReLU activation for layer 2
+        x = self.dropout(x) # Apply dropout
+
+        x = self.linear4(x) # Final output layer
+        return x
+
 
     def save_model(self, path):
         # Save the model's state_dict
@@ -83,6 +88,9 @@ class Model(object):
         """
         raise NotImplementedError("predict method not implemented for model")
 
+    def predict_by_batch(self, x):
+        return self.predict(x)
+
     def train(self, data):
         """
         model training implementation
@@ -96,7 +104,7 @@ class Model(object):
     def performance(self, x, y):
 
         # evaluate model performance
-        y_pred_test = self.predict(x)
+        y_pred_test = self.predict_by_batch(x)
 
         return supporting_functions.evaluate_test(
                 _as_numpy(y),
@@ -126,8 +134,14 @@ class Model(object):
     def save_reconstruction(self, ens:str, member:str, df:pd.DataFrame, x_seen:np.array, x_unseen:np.array, seen_mask:np.array, unseen_mask:np.array, dates, path:str, target:str):
 
         # calculate predictions
-        y_pred_seen = _as_numpy(self.predict(x_seen))
-        y_pred_unseen = _as_numpy(self.predict(x_unseen))
+        print("Len(x_seen):", len(x_seen))
+        print("Len(x_unseen):", len(x_unseen))
+        self.model.eval()
+        with torch.no_grad():
+            y_pred_seen = _as_numpy(self.predict_by_batch(x_seen))
+            gc.collect()
+            torch.cuda.empty_cache()
+            y_pred_unseen = _as_numpy(self.predict_by_batch(x_unseen, batch_size=256))
 
         # save full reconstruction
         df[ColumnFields.PCO2_RECON_FULL.value] = np.nan
@@ -201,12 +215,11 @@ class XGBoostModel(Model):
     
 
 class NeuralNetworkModel(Model):
-    def __init__(self, input_nodes, hidden_nodes, output_nodes, device, epochs:int=3000, patience:int=20, lr:float=1e-03, **kwargs):
+    def __init__(self, input_nodes, hidden_nodes, output_nodes, epochs:int=3000, patience:int=100, lr:float=1e-03, **kwargs):
         model = self._get_model(
             input_nodes,
             hidden_nodes,
             output_nodes,
-            device
         )
         super().__init__(model=model)
         self.epochs = epochs
@@ -219,23 +232,96 @@ class NeuralNetworkModel(Model):
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr)  # Adam optimizer
         self.loss_fn = torch.nn.L1Loss(reduction='mean')  # L1 loss for gradient computation
 
-    def _get_model(self, input_nodes, hidden_nodes, output_nodes, device):
+    def _get_model(self, input_nodes, hidden_nodes, output_nodes):
         """
         initialize neural network model
         """
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
         return KappaLayers(
             input_nodes,
             hidden_nodes,
             output_nodes
         ).to(device)
     
+    def predict_by_batch(self, x, batch_size=1024):
+        preds = []
+
+        for i in range(0, len(x), batch_size):
+            batch_x = x[i:i+batch_size]
+            batch_x = self.maybe_torch(batch_x)
+            batch_preds = self.model(batch_x).T[0].cpu()
+            preds.append(batch_preds)
+            del batch_x
+
+        return torch.cat(preds)
+
     def predict(self, x):
         return self.model(x).T[0]
 
-    def train(self, data):
+    def train(self, data, batch_size=1024):
+        dataset = TensorDataset(torch.FloatTensor(data.x_train_val), torch.FloatTensor(data.y_train_val))
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+        val_dataset = TensorDataset(torch.FloatTensor(data.x_val), torch.FloatTensor(data.y_val))
+        val_loader = DataLoader(val_dataset, batch_size=batch_size)
+
+        with tqdm(total=self.epochs, desc="Training Progress", unit="epoch") as pbar:
+            for epoch in range(self.epochs):
+                self.model.train()
+                train_loss_epoch = 0.0
+                for x_batch, y_batch in dataloader:
+                    self.optimizer.zero_grad()
+
+                    y_pred = self.predict(x_batch)
+                    loss = self.loss_fn(y_pred, y_batch)
+                    loss.backward()
+                    self.optimizer.step()
+
+                    train_loss_epoch += loss.item() * x_batch.size(0)
+
+                train_loss_epoch /= len(dataset)
+
+                # Validation loss calculation
+                self.model.eval()
+                val_loss_epoch = 0.0
+                with torch.no_grad():
+                    for x_val_batch, y_val_batch in val_loader:
+                        y_val_pred = self.predict(x_val_batch)
+                        val_loss_epoch += self.loss_fn(y_val_pred, y_val_batch).item() * x_val_batch.size(0)
+
+                val_loss_epoch /= len(val_dataset)
+
+                # Update results
+                self.update_results(
+                    k=epoch,
+                    train_loss=train_loss_epoch,
+                    valid_loss=val_loss_epoch,
+                    model_state=self.model.state_dict()
+                )
+
+                # Progress bar update
+                pbar = update_progress_bar(
+                    pbar=pbar,
+                    train_loss=train_loss_epoch,
+                    valid_loss=val_loss_epoch,
+                    no_improvement=self.no_improvement
+                )
+
+                if self.exceeded_patience():
+                    print(f"\nEarly stopping at epoch {epoch+1}.")
+                    break
+
+        self.restore_best_model(epoch)
+
+    def train2(self, data):
         """
         train neural network
         """
+
+        x_train_val = self.maybe_torch(data.x_train_val)
+        x_val = self.maybe_torch(data.x_val)
+        y_train_val = self.maybe_torch(data.y_train_val)
+        y_val = self.maybe_torch(data.y_val)
         
         # Add a progress bar
         with tqdm(total=self.epochs, desc="Training Progress", unit="epoch") as pbar:
@@ -243,14 +329,14 @@ class NeuralNetworkModel(Model):
                 
                 self.optimizer.zero_grad()  # Clear gradients from the previous step
                 
-                y_pred = self.predict(data.x_train_val)  # Forward pass for training data
-                valid_pred = self.predict(data.x_val)  # Forward pass for validation data
+                y_pred = self.predict(x_train_val)  # Forward pass for training data
+                valid_pred = self.predict(x_val)  # Forward pass for validation data
                 
                 # Loss used for gradient calculation
-                loss = self.loss_fn(y_pred, data.y_train_val)
+                loss = self.loss_fn(y_pred, y_train_val)
                 
-                train_loss = calculate_loss(actual=data.y_train_val, prediction=y_pred)
-                valid_loss = calculate_loss(actual=data.y_val, prediction=valid_pred)
+                train_loss = calculate_loss(actual=y_train_val, prediction=y_pred)
+                valid_loss = calculate_loss(actual=y_val, prediction=valid_pred)
                 
                 loss.backward()  # Backpropagate the gradient
                 self.optimizer.step()  # Update model parameter
@@ -281,7 +367,7 @@ class NeuralNetworkModel(Model):
                 
         # Restore the best model state after training
         self.restore_best_model(k)
-    
+
     def update_results(self, k:int, train_loss:float, valid_loss:float, model_state:dict) -> None:
 
         # Record the losses for this epoch
@@ -309,15 +395,29 @@ class NeuralNetworkModel(Model):
         
         self.loss_array = self.loss_array[:k,:]
 
+    @staticmethod
+    def maybe_torch(x):
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+        if isinstance(x, torch.Tensor):
+            return x if x.device.type == device else x.to(device)
+        if isinstance(x, pd.DataFrame):
+            return torch.FloatTensor(x.to_numpy()).to(device)
+        elif isinstance(x, np.ndarray):
+            return torch.FloatTensor(x).to(device)
+        
     def performance(self, x, y):
+        self.model.eval()
+        with torch.no_grad():
+            y_pred_test = self.predict_by_batch(x)
 
-        # evaluate model performance
-        y_pred_test = self.predict(x)
+        if isinstance(y, np.ndarray):
+            y = torch.from_numpy(y)
 
-        return supporting_functions.evaluate_test_torch(
-                y,
-                y_pred_test
-            )
+        return supporting_functions.evaluate_test_torch(y, y_pred_test)
+
+
+
 
 class DataParameters(object):
     def __init__(
@@ -335,29 +435,32 @@ class DataParameters(object):
         seen_val_mask:np.array,
         unseen_val_mask:np.array,
         df:pd.DataFrame,
-        data_as_tensor:bool,
-        device:str="cpu"
     ):
-        self.x_val = self._format_data(df=x_val, data_as_tensor=data_as_tensor, device=device)
-        self.y_val = self._format_data(df=y_val, data_as_tensor=data_as_tensor, device=device)
-        self.x_train_val = self._format_data(df=x_train_val, data_as_tensor=data_as_tensor, device=device)
-        self.y_train_val = self._format_data(df=y_train_val, data_as_tensor=data_as_tensor, device=device)
-        self.x_test = self._format_data(df=x_test, data_as_tensor=data_as_tensor, device=device)
-        self.y_test = self._format_data(df=y_test, data_as_tensor=data_as_tensor, device=device)
-        self.x_unseen = self._format_data(df=x_unseen, data_as_tensor=data_as_tensor, device=device)
-        self.y_unseen = self._format_data(df=y_unseen, data_as_tensor=data_as_tensor, device=device)
-        self.x_seen = self._format_data(df=x_seen, data_as_tensor=data_as_tensor, device=device)
-        self.y_seen = self._format_data(df=y_seen, data_as_tensor=data_as_tensor, device=device)
+        self.x_val = x_val
+        self.y_val = y_val
+        self.x_train_val = x_train_val
+        self.y_train_val = y_train_val
+        self.x_test = x_test
+        self.y_test = y_test
+        self.x_unseen = x_unseen
+        self.y_unseen = y_unseen
+        self.x_seen = x_seen
+        self.y_seen = y_seen
         self.seen_val_mask = seen_val_mask
         self.unseen_val_mask = unseen_val_mask
         self.df = df
 
-    def _format_data(self, df:pd.DataFrame, data_as_tensor:bool, device:str):
-        if data_as_tensor:
-            return torch.FloatTensor(df).to(device)
+    def save(self, path):
+        """Save this object to disk as a pickle file."""
+        with open(path, 'wb') as f:
+            pickle.dump(self, f)
 
-        return df
-        
+    @classmethod
+    def load(cls, path):
+        """Load this object from a pickle file."""
+        with open(path, 'rb') as f:
+            return pickle.load(f)
+
 
 #===============================================
 # Functions
@@ -463,8 +566,6 @@ def _extract_features_from_file(
     target:str,
     train_year_mon:list,
     test_year_mon:list, 
-    data_as_tensor:bool, 
-    device:str,
     random_seeds,
     seed_loc,
     test_proportion:float=0.0,
@@ -560,8 +661,6 @@ def _extract_features_from_file(
         seen_val_mask=seen_val_mask,
         unseen_val_mask=unseen_val_mask,
         df=df,
-        data_as_tensor=data_as_tensor,
-        device=device
     )
 
 
@@ -641,23 +740,19 @@ def _model_parameters(model_type:str):
     get model specific parameters
     """
     if Models(model_type) == Models.XGBOOST:
-        data_as_tensor = False
-        device = "cpu"
         extension = "json"
         
-        return device, data_as_tensor, extension
+        return extension
             
     elif Models(model_type) == Models.NEURAL_NETWORK:
-        data_as_tensor = True
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         extension = "pth"
 
-        return device, data_as_tensor, extension
+        return extension
             
     else:
         raise ValueError(f"model {model_type} not supported! The only models supported are: [`{Models.XGBOOST.value}`, `{Models.NEURAL_NETWORK.value}`]")
 
-def _get_new_model(model_type:str, data, random_seeds, seed_loc, **kwargs):
+def _get_new_model(model_type:str, data: DataParameters, random_seeds, seed_loc, **kwargs):
     """
     define model
     """
@@ -669,12 +764,11 @@ def _get_new_model(model_type:str, data, random_seeds, seed_loc, **kwargs):
             
     elif Models(model_type) == Models.NEURAL_NETWORK:
         model = NeuralNetworkModel(**kwargs)
-            
     else:
         raise ValueError(f"model {model_type} not supported! The only models supported are: [`{Models.XGBOOST.value}`, `{Models.NEURAL_NETWORK.value}`]")
 
     # train model
-    model.train(data=data)
+    model.train2(data=data)
 
     return model
     
@@ -702,7 +796,7 @@ def train_member_models(
             print(ens, member)
 
             seed_loc = seed_loc_dict[ens][member]
-            device, data_as_tensor, extension = _model_parameters(model_type=model_type)       
+            extension = _model_parameters(model_type=model_type)       
             
             # fetch data
             data = _extract_features_from_file(
@@ -714,8 +808,6 @@ def train_member_models(
                 target=target,
                 train_year_mon=train_year_mon,
                 test_year_mon=test_year_mon,
-                data_as_tensor=data_as_tensor,
-                device=device,
                 random_seeds=random_seeds,
                 seed_loc=seed_loc,
                 test_proportion=test_proportion,
@@ -733,7 +825,6 @@ def train_member_models(
                 member=member,
                 extension=extension,
                 saving_paths=saving_paths,
-                device=device,
                 **kwargs
             )
 
