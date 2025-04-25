@@ -248,7 +248,7 @@ class NeuralNetworkModel(Model):
         return torch.cat(preds)
 
     def train(self, data, batch_size=1024):
-        dataset = TensorDataset(data.x_train, data.y_train)
+        dataset = TensorDataset(data.x_train_val, data.y_train_val)
         dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
         val_dataset = TensorDataset(data.x_val, data.y_val)
