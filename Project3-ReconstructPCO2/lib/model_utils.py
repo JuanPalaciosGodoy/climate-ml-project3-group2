@@ -238,13 +238,11 @@ class NeuralNetworkModel(Model):
     def predict(self, x, batch_size=1024):
         preds = []
 
-        self.model.eval()
-        with torch.no_grad():
-            for i in range(0, len(x), batch_size):
-                batch_x = x[i:i+batch_size]
-                batch_x = self.maybe_torch(batch_x)
-                batch_preds = self.model(batch_x).T[0]
-                preds.append(batch_preds)
+        for i in range(0, len(x), batch_size):
+            batch_x = x[i:i+batch_size]
+            batch_x = self.maybe_torch(batch_x)
+            batch_preds = self.model(batch_x).T[0]
+            preds.append(batch_preds)
 
         return torch.cat(preds)
 
@@ -352,21 +350,16 @@ class NeuralNetworkModel(Model):
         elif isinstance(x, np.ndarray):
             return torch.FloatTensor(x).to(device)
         
-    def performance(self, x, y, batch_size=1024):
-        self.model.eval()
-
+    def performance(self, x, y):
         # Ensure tensors
+        x = self.maybe_torch(x)
         y = self.maybe_torch(y)
 
         preds = []
-        with torch.no_grad():
-            for i in range(0, len(x), batch_size):
-                batch_x = x[i:i+batch_size]
-                batch_x = self.maybe_torch(batch_x)
-                batch_preds = self.predict(batch_x)
-                preds.append(batch_preds.cpu())
 
-        y_pred_test = torch.cat(preds).to(y.device)
+        self.model.eval()
+        with torch.no_grad():
+            y_pred_test = self.predict(x)
 
         return supporting_functions.evaluate_test_torch(y, y_pred_test)
 
