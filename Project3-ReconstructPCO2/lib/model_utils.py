@@ -132,8 +132,8 @@ class Model(object):
         # calculate predictions
         print("Len(x_seen):", len(x_seen))
         print("Len(x_unseen):", len(x_unseen))
-        y_pred_seen = _as_numpy(self.predict(x_seen))
-        y_pred_unseen = _as_numpy(self.predict(x_unseen))
+        y_pred_seen = _as_numpy(self.predict(x_seen, batch_size=512))
+        y_pred_unseen = _as_numpy(self.predict(x_unseen, batch_size=512))
 
         # save full reconstruction
         df[ColumnFields.PCO2_RECON_FULL.value] = np.nan
