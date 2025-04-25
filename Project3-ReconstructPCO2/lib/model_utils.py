@@ -52,22 +52,6 @@ class KappaLayers(nn.Module):
         self.linear4 = nn.Linear(hidden_nodes, output_nodes) # Third layer: Hidden to output
         self.dropout = nn.Dropout(0.25) # Dropout for regularization
 
-    # def forward(self, x):
-    #     x2 = self.linear1(x)
-    #     h1 = torch.relu(x2)            # ReLU activation for layer 1
-    #     h1 = self.dropout(h1)          # Apply dropout
-        
-    #     h2 = self.linear2(h1)
-    #     h3 = torch.relu(h2)            # ReLU activation for layer 2
-    #     h3 = self.dropout(h3)          # Apply dropout
-
-    #     h3 = self.linear3(h1)
-    #     h4 = torch.relu(h2)            # ReLU activation for layer 2
-    #     h4 = self.dropout(h3)          # Apply dropout
-
-    #     y_pred = self.linear4(h4)      # Final output layer
-    #     return y_pred
-    
     def forward(self, x):
         x = self.linear1(x)
         x = torch.relu(x)  # ReLU activation for layer 1
@@ -82,6 +66,9 @@ class KappaLayers(nn.Module):
         x = self.dropout(x) # Apply dropout
 
         x = self.linear4(x) # Final output layer
+
+        print(f"[forward] output device: {x.device}")
+
         return x
 
 
