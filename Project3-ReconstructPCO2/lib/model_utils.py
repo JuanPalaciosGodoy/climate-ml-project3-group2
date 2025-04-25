@@ -248,10 +248,10 @@ class NeuralNetworkModel(Model):
         return torch.cat(preds)
 
     def train(self, data, batch_size=1024):
-        dataset = TensorDataset(data.x_train_val, data.y_train_val)
+        dataset = TensorDataset(torch.FloatTensor(data.x_train_val), torch.FloatTensor(data.y_train_val))
         dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
-        val_dataset = TensorDataset(data.x_val, data.y_val)
+        val_dataset = TensorDataset(torch.FloatTensor(data.x_val), torch.FloatTensor(data.y_val))
         val_loader = DataLoader(val_dataset, batch_size=batch_size)
 
         with tqdm(total=self.epochs, desc="Training Progress", unit="epoch") as pbar:
