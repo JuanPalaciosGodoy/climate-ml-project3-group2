@@ -340,7 +340,7 @@ class NeuralNetworkModel(Model):
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
         if isinstance(x, torch.Tensor):
-            return x
+            return x if x.device.type == device else x.to(device)
         if isinstance(x, pd.DataFrame):
             return torch.FloatTensor(x.to_numpy()).to(device)
         elif isinstance(x, np.ndarray):
