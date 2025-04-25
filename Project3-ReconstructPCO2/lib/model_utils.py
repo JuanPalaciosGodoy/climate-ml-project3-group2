@@ -133,6 +133,7 @@ class Model(object):
         # calculate predictions
         print("Len(x_seen):", len(x_seen))
         print("Len(x_unseen):", len(x_unseen))
+        self.model.eval()
         with torch.no_grad():
             y_pred_seen = _as_numpy(self.predict(x_seen))
             gc.collect()
