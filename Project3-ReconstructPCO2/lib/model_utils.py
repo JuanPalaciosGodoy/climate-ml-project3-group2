@@ -66,9 +66,6 @@ class KappaLayers(nn.Module):
         x = self.dropout(x) # Apply dropout
 
         x = self.linear4(x) # Final output layer
-
-        print(f"[forward] output device: {x.device}")
-
         return x
 
 
