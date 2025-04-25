@@ -345,6 +345,9 @@ class NeuralNetworkModel(Model):
         with torch.no_grad():
             y_pred_test = self.predict(x)
 
+        if isinstance(y, np.ndarray):
+            y = torch.from_numpy(y)
+
         return supporting_functions.evaluate_test_torch(y, y_pred_test)
 
 
