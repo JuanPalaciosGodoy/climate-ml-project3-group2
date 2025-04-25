@@ -241,7 +241,7 @@ class NeuralNetworkModel(Model):
         for i in range(0, len(x), batch_size):
             batch_x = x[i:i+batch_size]
             batch_x = self.maybe_torch(batch_x)
-            batch_preds = self.model(batch_x).T[0]
+            batch_preds = self.model(batch_x).T[0].cpu()
             preds.append(batch_preds)
 
         return torch.cat(preds)
@@ -258,9 +258,6 @@ class NeuralNetworkModel(Model):
                 self.model.train()
                 train_loss_epoch = 0.0
                 for x_batch, y_batch in dataloader:
-                    x_batch = self.maybe_torch(x_batch)
-                    y_batch = self.maybe_torch(y_batch)
-
                     self.optimizer.zero_grad()
 
                     y_pred = self.predict(x_batch)
@@ -277,8 +274,6 @@ class NeuralNetworkModel(Model):
                 val_loss_epoch = 0.0
                 with torch.no_grad():
                     for x_val_batch, y_val_batch in val_loader:
-                        x_val_batch = self.maybe_torch(x_val_batch)
-                        y_val_batch = self.maybe_torch(y_val_batch)
                         y_val_pred = self.predict(x_val_batch)
                         val_loss_epoch += self.loss_fn(y_val_pred, y_val_batch).item() * x_val_batch.size(0)
 
@@ -346,12 +341,6 @@ class NeuralNetworkModel(Model):
             return torch.FloatTensor(x).to(device)
         
     def performance(self, x, y):
-        # Ensure tensors
-        x = self.maybe_torch(x)
-        y = self.maybe_torch(y)
-
-        preds = []
-
         self.model.eval()
         with torch.no_grad():
             y_pred_test = self.predict(x)
