@@ -264,11 +264,6 @@ class NeuralNetworkModel(Model):
                     self.optimizer.zero_grad()
 
                     y_pred = self.predict(x_batch)
-                    print("Model is on device:", next(self.model.parameters()).device)
-                    print(f"x_batch device: {x_batch.device}")
-                    print(f"y_batch device: {y_batch.device}")
-                    print(f"y_pred device:  {y_pred.device}")
-
                     loss = self.loss_fn(y_pred, y_batch)
                     loss.backward()
                     self.optimizer.step()
