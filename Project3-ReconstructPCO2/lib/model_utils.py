@@ -136,17 +136,22 @@ class Model(object):
                 writer.writeheader() 
             writer.writerow(test_row_dict)
 
-    def save_reconstruction(self, ens:str, member:str, df:pd.DataFrame, x_seen:np.array, x_unseen:np.array, seen_mask:np.array, unseen_mask:np.array, dates, path:str, target:str):
+    def save_reconstruction(self, ens:str, member:str, df:pd.DataFrame, x_seen:np.array, x_unseen:np.array, seen_mask:np.array, unseen_mask:np.array, dates, path:str, target:str, model_type:str):
 
-        # calculate predictions
-        print("Len(x_seen):", len(x_seen))
-        print("Len(x_unseen):", len(x_unseen))
-        self.model.eval()
-        with torch.no_grad():
-            y_pred_seen = _as_numpy(self.predict_by_batch(x_seen))
-            gc.collect()
-            torch.cuda.empty_cache()
-            y_pred_unseen = _as_numpy(self.predict_by_batch(x_unseen, batch_size=256))
+        if Models(model_type) == Models.NEURAL_NETWORK:
+            # calculate predictions
+            print("Len(x_seen):", len(x_seen))
+            print("Len(x_unseen):", len(x_unseen))
+            self.model.eval()
+            with torch.no_grad():
+                y_pred_seen = _as_numpy(self.predict_by_batch(x_seen))
+                gc.collect()
+                torch.cuda.empty_cache()
+                y_pred_unseen = _as_numpy(self.predict_by_batch(x_unseen, batch_size=256))
+        else:
+            # calculate predictions
+            y_pred_seen = _as_numpy(self.predict(x_seen))
+            y_pred_unseen = _as_numpy(self.predict(x_unseen))
 
         # save full reconstruction
         df[ColumnFields.PCO2_RECON_FULL.value] = np.nan
@@ -178,7 +183,7 @@ class Model(object):
             ens,
             member
         )
-        
+  
 
 class XGBoostModel(Model):
     def __init__(self, random_seeds, seed_loc, **kwargs):
@@ -216,6 +221,12 @@ class XGBoostModel(Model):
             eval_set=eval_set, 
             verbose=False
         )
+
+    def train2(self, data):
+        """
+        train xgboost model
+        """
+        self.train(data)
         
     
 
@@ -855,7 +866,8 @@ def train_member_models(
                     unseen_mask=data.unseen_val_mask, 
                     dates=dates,
                     path=saving_paths.recon_output_dir,
-                    target=target
+                    target=target,
+                    model_type=model_type
                 )
             
             # save performance
