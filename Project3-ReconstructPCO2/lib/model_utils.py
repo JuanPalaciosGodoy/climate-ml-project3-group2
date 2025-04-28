@@ -221,12 +221,6 @@ class XGBoostModel(Model):
             eval_set=eval_set, 
             verbose=False
         )
-
-    def train2(self, data):
-        """
-        train xgboost model
-        """
-        self.train(data)
         
     
 
@@ -274,7 +268,7 @@ class NeuralNetworkModel(Model):
     def predict(self, x):
         return self.model(x).T[0]
 
-    def train(self, data, batch_size=1024):
+    def train_batched(self, data, batch_size=1024):
         dataset = TensorDataset(torch.FloatTensor(data.x_train_val), torch.FloatTensor(data.y_train_val))
         dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
@@ -329,7 +323,10 @@ class NeuralNetworkModel(Model):
 
         self.restore_best_model(epoch)
 
-    def train2(self, data):
+    def train(self, data):
+        return self.train_nobatch(data)
+
+    def train_nobatch(self, data):
         """
         train neural network
         """
@@ -679,35 +676,13 @@ def _extract_features_from_file(
         df=df,
     )
 
-
-def get_model(load_saved_model:bool, model_type:str, data, random_seeds, seed_loc, ens:str, member:str, extension:str, saving_paths, **kwargs):
-
-    if load_saved_model:
-        return _load_model(
-            model_type=model_type,
-            ens=ens,
-            member=member,
-            extension=extension,
-            saving_paths=saving_paths,
-            random_seeds=random_seeds,
-            seed_loc=seed_loc,
-            **kwargs
-        )
-    
-    return _get_new_model(
-        model_type=model_type,
-        data=data,
-        random_seeds=random_seeds,
-        seed_loc=seed_loc,
-        **kwargs
-    )
-
-def _load_model(model_type:str, ens:str, member:str, extension:str, saving_paths, random_seeds, seed_loc, **kwargs):
+def _load_model(model_type:str, ens:str, member:str, saving_paths, random_seeds, seed_loc, **kwargs):
     """
     load locally saved model
     """
 
     print("loading model...")
+    extension = _model_parameters(model_type=model_type)       
     
     # get model path
     model_path = saving_paths.load_model_local_path(
@@ -768,7 +743,7 @@ def _model_parameters(model_type:str):
     else:
         raise ValueError(f"model {model_type} not supported! The only models supported are: [`{Models.XGBOOST.value}`, `{Models.NEURAL_NETWORK.value}`]")
 
-def _get_new_model(model_type:str, data: DataParameters, random_seeds, seed_loc, **kwargs):
+def _get_new_model(model_type:str, random_seeds, seed_loc, **kwargs):
     """
     define model
     """
@@ -782,9 +757,6 @@ def _get_new_model(model_type:str, data: DataParameters, random_seeds, seed_loc,
         model = NeuralNetworkModel(**kwargs)
     else:
         raise ValueError(f"model {model_type} not supported! The only models supported are: [`{Models.XGBOOST.value}`, `{Models.NEURAL_NETWORK.value}`]")
-
-    # train model
-    model.train2(data=data)
 
     return model
     
@@ -812,7 +784,6 @@ def train_member_models(
             print(ens, member)
 
             seed_loc = seed_loc_dict[ens][member]
-            extension = _model_parameters(model_type=model_type)       
             
             # fetch data
             data = _extract_features_from_file(
@@ -830,19 +801,25 @@ def train_member_models(
                 validation_proportion=validation_proportion
             )
 
-            # get model
-            model = get_model(
-                load_saved_model=not is_training,
-                model_type=model_type,
-                data=data,
-                random_seeds=random_seeds,
-                seed_loc=seed_loc,
-                ens=ens,
-                member=member,
-                extension=extension,
-                saving_paths=saving_paths,
-                **kwargs
-            )
+            if is_training:
+                # get model
+                model = _get_new_model(
+                    model_type=model_type,
+                    random_seeds=random_seeds,
+                    seed_loc=seed_loc,
+                    **kwargs
+                )
+                model.train(data=data)
+            else:
+                model = _load_model(
+                    model_type=model_type,
+                    ens=ens,
+                    member=member,
+                    saving_paths=saving_paths,
+                    random_seeds=random_seeds,
+                    seed_loc=seed_loc,
+                    **kwargs
+                )
 
             # test performance
             performance = defaultdict(dict)
@@ -881,6 +858,7 @@ def train_member_models(
 
             if is_training:
                 # save model locally
+                extension = _model_parameters(model_type=model_type)
                 supporting_functions.save_model_locally(
                     model=model.model, 
                     dates=dates, 
@@ -893,5 +871,72 @@ def train_member_models(
             print(f'{label} performance metrics:', performance[ens][member])
 
             del data, model
+            
+    print('end of all members', datetime.datetime.now())
+
+
+
+
+def get_first_member_predictions(
+    saving_paths,
+    features,
+    target,
+    train_year_mon,
+    test_year_mon,
+    run_selected_mems_dict,
+    seed_loc_dict,
+    test_proportion:float=0.0,
+    validation_proportion:float=0.2,
+    **kwargs
+):
+    fs = gcsfs.GCSFileSystem()
+    random_seeds = np.load(fs.open(saving_paths.path_seeds))   
+    print(datetime.datetime.now())
+    
+    for ens, mem_list in run_selected_mems_dict.items():
+        for member in mem_list:
+            print(ens, member)
+
+            seed_loc = seed_loc_dict[ens][member]
+            
+            # fetch data
+            data = _extract_features_from_file(
+                fs=fs,
+                saving_paths=saving_paths,
+                ens=ens,
+                member=member,
+                features=features,
+                target=target,
+                train_year_mon=train_year_mon,
+                test_year_mon=test_year_mon,
+                random_seeds=random_seeds,
+                seed_loc=seed_loc,
+                test_proportion=test_proportion,
+                validation_proportion=validation_proportion
+            )
+            xgb_model = _load_model(
+                model_type=Models.XGBOOST.value,
+                ens=ens,
+                member=member,
+                saving_paths=saving_paths,
+                random_seeds=random_seeds,
+                seed_loc=seed_loc,
+                **kwargs
+            )
+            nn_model = _load_model(
+                model_type=Models.NEURAL_NETWORK.value,
+                ens=ens,
+                member=member,
+                saving_paths=saving_paths,
+                random_seeds=random_seeds,
+                seed_loc=seed_loc,
+                **kwargs
+            )
+
+            xgb_output = xgb_model.predict(data.x_unseen)
+            nn_output = nn_model.predict(data.x_unseen)
+
+            return xgb_output, nn_output, data
+
             
     print('end of all members', datetime.datetime.now())

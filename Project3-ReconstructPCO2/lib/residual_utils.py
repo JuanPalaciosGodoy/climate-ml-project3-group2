@@ -1168,11 +1168,10 @@ def calc_recon_pco2_modified(regridded_members_dir, pco2_recon_dir_xgb, pco2_rec
             comp = comp.chunk({'time':100,'ylat':45,'xlon':90})
             comp.to_zarr(file_out, mode='w', zarr_format=2)
 
-
             print(f'finished with {member}')
-            
+
     if owner_name:
-        print("Copying remaining members from owner’s directory...")
+        print("Copying remaining members from owner's directory...")
         for ens, mem_list in selected_mems_dict.items():
             print(f"On member {member}")            
             if ens in run_selected_mems_dict: 
