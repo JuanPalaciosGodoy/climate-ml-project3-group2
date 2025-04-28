@@ -266,6 +266,7 @@ class NeuralNetworkModel(Model):
         return torch.cat(preds)
 
     def predict(self, x):
+        x = self.maybe_torch(x)
         return self.model(x).T[0]
 
     def train_batched(self, data, batch_size=1024):
