@@ -935,7 +935,7 @@ def get_first_member_predictions(
             )
 
             xgb_output = xgb_model.predict(data.x_unseen)
-            nn_output = nn_model.predict(data.x_unseen)
+            nn_output = nn_model.predict_by_batch(data.x_unseen)
 
             return xgb_output, nn_output, data
 
