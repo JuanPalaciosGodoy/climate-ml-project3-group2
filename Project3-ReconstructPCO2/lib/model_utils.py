@@ -915,6 +915,28 @@ def get_first_member_predictions(
                 test_proportion=test_proportion,
                 validation_proportion=validation_proportion
             )
+            nn_params = {
+                'input_nodes':13,
+                'hidden_nodes':250,
+                'output_nodes':1,
+                'epochs':3000,
+                'lr': 1e-03
+            }
+            xgb_params = {
+                'n_estimators': 500,  # Number of boosting rounds
+                'max_depth': 6,  # Maximum depth of each tree to control model complexity
+                'learning_rate': 0.05,  # Step size shrinkage to prevent overfitting
+                'subsample': 0.8,  # Fraction of samples used for training each tree
+                'colsample_bytree': 0.8,  # Fraction of features used per tree
+                'gamma': 0.1,  # Minimum loss reduction required for further partitioning
+                'min_child_weight': 5,  # Minimum sum of instance weight in a leaf node
+                'reg_alpha': 0.1,  # L1 regularization to reduce model complexity
+                'reg_lambda': 1.0,  # L2 regularization for preventing overfitting
+                'objective': 'reg:squarederror',  # Loss function for regression tasks
+                'n_jobs': 30,  # Number of parallel threads to use for training
+                'eval_metric': 'rmse',
+                'early_stopping_rounds': 50  # Stop training if performance doesn't improve for 50 rounds
+            }
             xgb_model = _load_model(
                 model_type=Models.XGBOOST.value,
                 ens=ens,
@@ -922,7 +944,7 @@ def get_first_member_predictions(
                 saving_paths=saving_paths,
                 random_seeds=random_seeds,
                 seed_loc=seed_loc,
-                **kwargs
+                **xgb_params
             )
             nn_model = _load_model(
                 model_type=Models.NEURAL_NETWORK.value,
@@ -931,7 +953,7 @@ def get_first_member_predictions(
                 saving_paths=saving_paths,
                 random_seeds=random_seeds,
                 seed_loc=seed_loc,
-                **kwargs
+                **nn_params
             )
 
             xgb_output = xgb_model.predict(data.x_unseen)
