@@ -1,9 +1,24 @@
 # **Project 3: Machine Learning Reconstruction of Surface Ocean pCO₂**
 
-This project reproduces and extends portions of the analysis presented by Gloege et al. (2020) and Heimdal et al. (2024), using machine learning to reconstruct surface ocean partial pressure of CO₂ (pCO₂) and evaluate reconstruction performance under sparse observational coverage.
+## Project Assignment
 
-The notebook implements a **pCO₂-Residual** approach with an **XGBoost** model to improve upon standard pCO₂ reconstructions by isolating and removing the temperature-driven signal prior to machine learning regression. It also evaluates performance using data from the **Large Ensemble Testbed (LET)**.
++ Team 2
++ Team members:
+ + Primanta Bangun
+ + Samuel Kortchmar
+ + Sarika de Bruyn
+ + Juan Palacios
 
++ Project Summary: In this project, we use machine learning techniques (**XGBoost** and **Neural Networks**) to reconstruct surface ocean partial pressure of carbon dioxide (pCO₂) fields based on environmental predictors like sea surface temperature, salinity, mixed layer depth, and atmospheric CO₂. Due to the sparse observational coverage (e.g., SOCAT), we benchmark model skill using the Large Ensemble Testbed (LET), which provides full-coverage synthetic pCO₂ fields from Earth System Models (ESMs). By decomposing pCO₂-Residual into seasonal+trend and stochastic components, we improve ML reconstructions by matching model selection to the underlying variability patterns.
+
+[CONTRIBUTION STATEMENT]
+
+All team members contributed substantially to the project:
+
+Samuel Kortchmar experimented with different visualizations of XGBoost decision trees to understand feature importance evolution, but ultimately abandoned this approach due to limited insights. Later contributed to optimizing the Neural Networks for GPU use. Sarika de Bruyn tried to add ENSO as a feature in attempts to improve the Baseline model; tried to help fix toggling issues between NGBoost and Neural Network models; edited and cleaned the notebook to improve the data story. Juan Palacios implemented the seasonal decomposition of pCO₂ residuals; developed separate XGBoost and Neural Network models to predict the seasonal+trend and deseasonal components independently; aggregated both outputs into final pCO₂ residual predictions. Primanta Bangun led Model Performance Evaluation across Earth System Models and Ocean Regions, including calculating bias, RMSE, and correlation by ensemble and region; visualizing model performance through bar plots and regional comparisons; interpreting performance differences between ESMs.
+
+All team members designed the study, contributed to the GitHub repository, and prepared the final presentation.
+All team members approve the work presented in the GitHub repository, including this contribution statement.
 
 ## **Folder Structure**
 
