@@ -43,8 +43,8 @@ Project3/
 ## **Instructions for Reviewer to Run:**
 1. Open Project3_Data.ipynb --> change to reviewer's username --> run
 2. Open OceanpCO2_Group2.ipynb --> change to reviewer's username
-       a. Set __MODEL_TYPE__ = "nn" --> run until section 2.3
-       b. Set __MODEL_TYPE__ = "xgb" --> run entire notebook
+   a. Set __MODEL_TYPE__ = "nn" --> run until section 2.3
+   b. Set __MODEL_TYPE__ = "xgb" --> run entire notebook
 
 ## **References**
 
