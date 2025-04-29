@@ -881,7 +881,6 @@ def train_member_models(
 def get_first_member_predictions(
     saving_paths,
     features,
-    target,
     train_year_mon,
     test_year_mon,
     run_selected_mems_dict,
@@ -893,7 +892,10 @@ def get_first_member_predictions(
     fs = gcsfs.GCSFileSystem()
     random_seeds = np.load(fs.open(saving_paths.path_seeds))   
     print(datetime.datetime.now())
-    
+
+    target_nn = ['pco2_residual_deseasonal']
+    target_xgb = ['pco2_residual_trend_plus_seasonal']
+ 
     for ens, mem_list in run_selected_mems_dict.items():
         for member in mem_list:
             print(ens, member)
@@ -901,13 +903,13 @@ def get_first_member_predictions(
             seed_loc = seed_loc_dict[ens][member]
             
             # fetch data
-            data = _extract_features_from_file(
+            data_xgb = _extract_features_from_file(
                 fs=fs,
                 saving_paths=saving_paths,
                 ens=ens,
                 member=member,
                 features=features,
-                target=target,
+                target=target_xgb,
                 train_year_mon=train_year_mon,
                 test_year_mon=test_year_mon,
                 random_seeds=random_seeds,
@@ -915,6 +917,22 @@ def get_first_member_predictions(
                 test_proportion=test_proportion,
                 validation_proportion=validation_proportion
             )
+            # fetch data
+            data_nn = _extract_features_from_file(
+                fs=fs,
+                saving_paths=saving_paths,
+                ens=ens,
+                member=member,
+                features=features,
+                target=target_nn,
+                train_year_mon=train_year_mon,
+                test_year_mon=test_year_mon,
+                random_seeds=random_seeds,
+                seed_loc=seed_loc,
+                test_proportion=test_proportion,
+                validation_proportion=validation_proportion
+            )
+
             xgb_model = _load_model(
                 model_type=Models.XGBOOST.value,
                 ens=ens,
@@ -934,12 +952,12 @@ def get_first_member_predictions(
                 **kwargs
             )
 
-            xgb_output = xgb_model.predict(data.x_unseen)
+            xgb_output = xgb_model.predict(data_xgb.x_unseen)
             nn_model.model.eval()
             with torch.no_grad():
-                nn_output = nn_model.predict_by_batch(data.x_unseen)
+                nn_output = nn_model.predict_by_batch(data_nn.x_unseen)
 
-            return xgb_output, nn_output, data
+            return xgb_output, nn_output, data_xgb, data_nn
 
             
     print('end of all members', datetime.datetime.now())

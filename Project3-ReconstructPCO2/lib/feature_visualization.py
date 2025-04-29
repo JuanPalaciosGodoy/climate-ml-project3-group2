@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 
-def plot_residuals_side_by_side(xgb_output, nn_output, data, features_sel, sample_size=10000, random_state=42):
+def plot_residuals_side_by_side(xgb_output, nn_output, data_xgb, data_nn, features_sel, sample_size=10000, random_state=42):
     """
     Plot XGBoost and Neural Network residuals side by side for each feature,
     using a random sample to avoid overplotting.
@@ -20,11 +20,11 @@ def plot_residuals_side_by_side(xgb_output, nn_output, data, features_sel, sampl
     """
 
     # Compute residuals
-    residuals_xgb = xgb_output - data.y_unseen
-    residuals_nn = nn_output - data.y_unseen
+    residuals_xgb = xgb_output - data_xgb.y_unseen
+    residuals_nn = nn_output - data_nn.y_unseen
 
     # Reconstruct test DataFrame
-    df_test = pd.DataFrame(data.x_unseen, columns=features_sel)
+    df_test = pd.DataFrame(data_nn.x_unseen, columns=features_sel)
     df_test["residual_xgb"] = residuals_xgb
     df_test["residual_nn"] = residuals_nn
 
