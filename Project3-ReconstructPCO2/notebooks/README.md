@@ -2,8 +2,8 @@
 
 This folder contains notebooks and resources for **Project 3**, where we reconstruct surface ocean pCO₂ from sparse observations using Earth System Model (ESM) outputs and machine learning techniques.
 
-- **`Project3_Starter.ipynb`**  
-  Main notebook for running ML training and evaluation on pre-selected ESMs and members using preprocessed inputs. Recommended for most users seeking an efficient workflow.
+- **`OceanpCO2_Group2.ipynb`**  
+  Our notebook which implements and analyzes our models.
   
 - **`Project3_Data.ipynb`**  
   A helper notebook that guides you through accessing raw ESM data from `ensemble_dir`, selecting custom members or models, and preprocessing them into ML-ready DataFrames. Use this only if you wish to go beyond the provided datasets.

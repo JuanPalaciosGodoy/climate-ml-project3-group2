@@ -5,6 +5,18 @@ This folder contains helper scripts that support machine learning reconstruction
 
 ## Files and Descriptions
 
+### `model_utils.py`
+Functions for creating and training models, allowing us to switch between xgboost and neural network approaches.
+
+
+### `paths_utils.py`
+Class for managing set of file paths across the GCS store.
+
+
+### `visualization.py`
+Functions for evaluating the impact of features on model predictions.
+
+
 ### `residual_utils.py`
 Core module for data handling and modeling. Includes:
 
@@ -49,5 +61,4 @@ Key features:
 ---
 
 ## Usage
-
-These modules are imported in the main notebook `notebooks/Project3_Starter.ipynb`, and can be reused or modified for similar ML applications in ocean and climate science.
+These modules are imported in the main notebook [text](../notebooks/OceanpCO2_Group2.ipynb), and can be reused or modified for similar ML applications in ocean and climate science.
