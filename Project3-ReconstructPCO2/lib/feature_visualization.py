@@ -24,28 +24,27 @@ def plot_residuals_side_by_side(xgb_output, nn_output, data_xgb, data_nn, featur
     residuals_nn = nn_output - data_nn.y_unseen
 
     # Reconstruct test DataFrame
-    df_test = pd.DataFrame(data_nn.x_unseen, columns=features_sel)
-    df_test["residual_xgb"] = residuals_xgb
-    df_test["residual_nn"] = residuals_nn
+    df_nn_test = pd.DataFrame(data_nn.x_unseen, columns=features_sel)
+    df_nn_test["residual_nn"] = residuals_nn
+    df_xgb_test = pd.DataFrame(data_xgb.x_unseen, columns=features_sel)
+    df_xgb_test["residual_xgb"] = residuals_xgb
 
     # Sample the data
-    if len(df_test) > sample_size:
-        df_sampled = df_test.sample(n=sample_size, random_state=random_state)
-    else:
-        df_sampled = df_test
+    df_nn_sampled = df_nn_test.sample(n=sample_size, random_state=random_state)
+    df_xgb_sampled = df_xgb_test.sample(n=sample_size, random_state=random_state)
 
     # Plot residuals vs each feature side by side
     for feature in features_sel:
         fig, axes = plt.subplots(1, 2, figsize=(12, 4), sharey=True)
 
-        axes[0].scatter(df_sampled[feature], df_sampled["residual_xgb"], alpha=0.3, s=10)
+        axes[0].scatter(df_xgb_sampled[feature], df_xgb_sampled["residual_xgb"], alpha=0.3, s=10)
         axes[0].axhline(0, color='red', linestyle='--')
         axes[0].set_title(f"XGB Residual vs {feature}")
         axes[0].set_xlabel(feature)
         axes[0].set_ylabel("Residual")
         axes[0].grid(True)
 
-        axes[1].scatter(df_sampled[feature], df_sampled["residual_nn"], alpha=0.3, s=10)
+        axes[1].scatter(df_nn_sampled[feature], df_nn_sampled["residual_nn"], alpha=0.3, s=10)
         axes[1].axhline(0, color='red', linestyle='--')
         axes[1].set_title(f"NN Residual vs {feature}")
         axes[1].set_xlabel(feature)
