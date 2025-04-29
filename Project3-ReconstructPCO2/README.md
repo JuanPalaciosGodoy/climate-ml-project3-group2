@@ -3,11 +3,11 @@
 ## Project Assignment
 
 + Team 2
-+ Team members:
- + Primanta Bangun
- + Samuel Kortchmar
- + Sarika de Bruyn
- + Juan Palacios
++ Team members
+    + Primanta Bangun
+    + Samuel Kortchmar
+    + Sarika de Bruyn
+    + Juan Palacios
 
 + Project Summary: In this project, we use machine learning techniques (**XGBoost** and **Neural Networks**) to reconstruct surface ocean partial pressure of carbon dioxide (pCO₂) fields based on environmental predictors like sea surface temperature, salinity, mixed layer depth, and atmospheric CO₂. Due to the sparse observational coverage (e.g., SOCAT), we benchmark model skill using the Large Ensemble Testbed (LET), which provides full-coverage synthetic pCO₂ fields from Earth System Models (ESMs). By decomposing pCO₂-Residual into seasonal+trend and stochastic components, we improve ML reconstructions by matching model selection to the underlying variability patterns.
 
