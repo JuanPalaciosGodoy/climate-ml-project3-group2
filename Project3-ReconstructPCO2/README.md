@@ -14,7 +14,7 @@
 **CONTRIBUTION STATEMENT**: 
 
 + All team members contributed substantially to the project:
-+ Samuel Kortchmar experimented with different visualizations of XGBoost decision trees to understand feature importance evolution, but ultimately abandoned this approach due to limited insights. Later contributed to optimizing the Neural Networks for GPU use. Sarika de Bruyn tried to add ENSO as a feature in attempts to improve the Baseline model; tried to help fix toggling issues between NGBoost and Neural Network models; edited and cleaned the notebook to improve the data story. Juan Palacios implemented the seasonal decomposition of pCO₂ residuals; developed separate XGBoost and Neural Network models to predict the seasonal+trend and deseasonal components independently; aggregated both outputs into final pCO₂ residual predictions. Primanta Bangun led Model Performance Evaluation across Earth System Models and Ocean Regions, including calculating bias, RMSE, and correlation by ensemble and region; visualizing model performance through bar plots and regional comparisons; interpreting performance differences between ESMs.
++ Samuel Kortchmar experimented with different visualizations of XGBoost decision trees to understand feature importance evolution, but ultimately abandoned this approach due to limited insights. Later contributed to optimizing the Neural Networks for GPU use. Sarika de Bruyn tried to add ENSO as a feature in attempts to improve the Baseline model; tried to help fix toggling issues between NGBoost and Neural Network models; edited and cleaned the notebook to improve the data story. Juan Palacios implemented the seasonal decomposition of pCO₂ residuals; developed separate XGBoost and Neural Network models to predict the seasonal+trend and deseasonal components independently; aggregated both outputs into final pCO₂ residual predictions. Experimented with developing the notebook using only a Neural Network (NN), but later abandoned this approach because the results were worse than the original notebook. Afterwards, do Model Performance Evaluation across Earth System Models and Ocean Regions, including calculating bias, RMSE, and correlation by ensemble and region; visualizing model performance through bar plots and regional comparisons; interpreting performance differences between ESMs.
 + All team members designed the study, contributed to the GitHub repository, and prepared the final presentation.
 + All team members approve the work presented in the GitHub repository, including this contribution statement.
 
@@ -31,9 +31,11 @@ Project3/
 │   ├── residual_utils.py      # Prepares data for ML, tools for dataset splitting, model evaluation, and saving files.
 │   └── visualization.py       # Custom plotting class SpatialMap2 for creating high-quality spatial visualizations with colorbars and map features using Cartopy and Matplotlib.
 ├── notebooks/
-│   └── Project3_Starter.ipynb # Main notebook containing full analysis & data story
+│   ├── Project3_Starter.ipynb # Original notebook containing full analysis & data story
 |   ├── leappersistent_file_management.ipynb # check the size of files and clean up
-|   ├── Project3_Data.ipynb  # Used for preprocessing data, if more than the 20 preprocessed ESM members are required. 
+|   ├── Project3_Data.ipynb  # Used for preprocessing data, if more than the 20 preprocessed ESM members are required.
+|   └── 
+
 ```
 
 ## **References**
