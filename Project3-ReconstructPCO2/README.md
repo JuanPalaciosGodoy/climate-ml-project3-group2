@@ -14,13 +14,16 @@
 **CONTRIBUTION STATEMENT**: 
 
 + All team members contributed substantially to the project:
-+ Samuel Kortchmar experimented with different visualizations of XGBoost decision trees to understand feature importance evolution, but ultimately abandoned this approach due to limited insights. Later contributed to optimizing the Neural Networks for GPU use. Sarika de Bruyn tried to add ENSO as a feature in attempts to improve the Baseline model; tried to help fix toggling issues between NGBoost and Neural Network models; edited and cleaned the notebook to improve the data story. Juan Palacios implemented the seasonal decomposition of pCO₂ residuals; developed separate XGBoost and Neural Network models to predict the seasonal+trend and deseasonal components independently; aggregated both outputs into final pCO₂ residual predictions. Experimented with developing the notebook using only a Neural Network (NN), but later abandoned this approach because the results were worse than the original notebook. Afterwards, do Model Performance Evaluation across Earth System Models and Ocean Regions, including calculating bias, RMSE, and correlation by ensemble and region; visualizing model performance through bar plots and regional comparisons; interpreting performance differences between ESMs.
++ Samuel Kortchmar experimented with different visualizations of XGBoost decision trees to understand feature importance evolution, but ultimately abandoned this approach due to limited insights. Later contributed to optimizing the Neural Networks for GPU use.
++ Sarika de Bruyn tried to add ENSO as a feature in attempts to improve the Baseline model; tried to help fix toggling issues between NGBoost and Neural Network models; edited and cleaned the notebook to improve the data story.
++ Juan Palacios implemented the seasonal decomposition of pCO₂ residuals; developed separate XGBoost and Neural Network models to predict the seasonal+trend and deseasonal components independently; aggregated both outputs into final pCO₂ residual predictions.
++ Primanta Bangun experimented with developing the notebook using only a Neural Network (NN), but later abandoned this approach because the results were worse than the original notebook. Afterwards, do Model Performance Evaluation across Earth System Models and Ocean Regions, including calculating bias, RMSE, and correlation by ensemble and region; visualizing model performance through bar plots and regional comparisons; interpreting performance differences between ESMs.
 + All team members designed the study, contributed to the GitHub repository, and prepared the final presentation.
 + All team members approve the work presented in the GitHub repository, including this contribution statement.
 
 ## **Folder Structure**
 
-To reduce complexity in the main notebook, several helper functions and figures are modularized into the `lib/` directory. You may modify these as needed for your project.
+To reduce complexity in the main notebook, several helper functions and figures are modularized into the `lib/` directory.
 
 ```bash
 Project3/
@@ -34,9 +37,14 @@ Project3/
 │   ├── Project3_Starter.ipynb # Original notebook containing full analysis & data story
 |   ├── leappersistent_file_management.ipynb # check the size of files and clean up
 |   ├── Project3_Data.ipynb  # Used for preprocessing data, if more than the 20 preprocessed ESM members are required.
-|   └── 
+|   └── OceanpCO2_Group2.ipynb # Main file for implementing group 2's project
 
 ```
+## **Instructions for Reviewer to Run:**
+1. Open Project3_Data.ipynb --> change to reviewer's username --> run
+2. Open OceanpCO2_Group2.ipynb --> change to reviewer's username
+       a. Set __MODEL_TYPE__ = "nn" --> run until section 2.3
+       b. Set __MODEL_TYPE__ = "xgb" --> run entire notebook
 
 ## **References**
 
