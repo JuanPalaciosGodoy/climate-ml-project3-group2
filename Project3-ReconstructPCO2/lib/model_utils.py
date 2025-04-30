@@ -917,7 +917,7 @@ def get_first_member_predictions(
             )
             nn_params = {
                 'input_nodes':13,
-                'hidden_nodes':250,
+                'hidden_nodes':50,
                 'output_nodes':1,
                 'epochs':3000,
                 'lr': 1e-03
