@@ -221,6 +221,16 @@ class XGBoostModel(Model):
             eval_set=eval_set, 
             verbose=False
         )
+
+    def performance(self, x, y):
+
+        # evaluate model performance
+        y_pred_test = self.predict(x)
+
+        return supporting_functions.evaluate_test(
+                _as_numpy(y),
+                _as_numpy(y_pred_test)
+            )
         
     
 
